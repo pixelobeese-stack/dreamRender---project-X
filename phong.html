@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sphere • Lighting + Specular Highlights</title>
+<script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body {
+  background: #E2E4E7;
+  font-family: sans-serif;
+  padding: 80px 10px 20px;
+}
+
+/* Top Bar */
+.top-bar {
+  position: fixed;
+  top:0; left:0; right:0;
+  background: white;
+  padding:12px 15px;
+  display:flex;
+  gap:10px;
+  align-items:center;
+  border-bottom:1px solid #ddd;
+  flex-wrap:wrap;
+  z-index:10;
+}
+.btn {
+  padding:8px 14px;
+  border:1px solid #ccc;
+  border-radius:8px;
+  background:#f8f9fa;
+  cursor:pointer;
+}
+.btn.active {
+  background:#222;
+  color:white;
+  border-color:#222;
+}
+.palette {
+  display:flex;
+  gap:6px;
+  margin-left:10px;
+}
+.swatch {
+  width:24px; height:24px;
+  border-radius:50%;
+  border:2px solid transparent;
+  cursor:pointer;
+}
+.swatch.selected { border-color:#000; }
+
+/* Preview */
+.preview-box {
+  background:white;
+  border-radius:12px;
+  padding:15px;
+  margin-bottom:15px;
+}
+canvas {
+  display:block;
+  margin:0 auto;
+  background:#111;
+  border-radius:8px;
+}
+.controls {
+  margin-top:15px;
+  display:grid;
+  grid-template-columns:repeat(auto-fit, minmax(180px, 1fr));
+  gap:12px;
+}
+.control-item {
+  display:flex;
+  flex-direction:column;
+  gap:4px;
+  font-size:14px;
+}
+
+/* Grid */
+.grid-box {
+  background:white;
+  border-radius:12px;
+  padding:15px;
+  overflow:auto;
+  max-height:50vh;
+}
+.grid {
+  display:grid;
+  grid-template-columns:repeat(64, 1fr);
+  gap:1px;
+  width:fit-content;
+}
+.cell {
+  width:12px; height:12px;
+  border-radius:50%;
+  background:#ddd;
+  border:none;
+  cursor:pointer;
+}
+.cell.filled { background:var(--c); }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel">
+const { useState, useRef, useEffect, useMemo } = React;
+
+const GRID = 64;
+const LAYERS = 64;
+const DOT_RADIUS = 2.5;
+const SPACING = 3.5;
+const COLORS = ['#e63946','#f4a261','#e9c46a','#2a9d8f','#8ecae6','#ffb703','#ffffff','#111'];
+const MAX_LIGHT_DISTANCE = 45;
+const SPECULAR_POWER = 32;   // Shine sharpness
+const SPECULAR_AMOUNT = 0.6; // Brightness of highlights
+
+const key = (x,y,z) => `${x},${y},${z}`;
+const project = (x,y,z,rot) => {
+  const rad = rot * Math.PI / 180;
+  const cx = x - GRID/2;
+  const cy = y - GRID/2;
+  return {
+    x: cx*Math.cos(rad) - cy*Math.sin(rad),
+    y: cx*Math.sin(rad) + cy*Math.cos(rad) - z*0.5
+  };
+};
+
+// === Lighting + Specular ===
+const calculateLighting = (dotX, dotY, dotZ, lightX, lightY, lightZ, centerX, centerY, centerZ) => {
+  // Distance-based diffuse lighting
+  const dx = dotX - lightX;
+  const dy = dotY - lightY;
+  const dz = dotZ - lightZ;
+  const distance = Math.sqrt(dx*dx + dy*dy + dz*dz);
+  const diffuse = Math.max(0.15, 1 - (distance / MAX_LIGHT_DISTANCE));
+
+  // Surface normal (from sphere center)
+  const nx = dotX - centerX;
+  const ny = dotY - centerY;
+  const nz = dotZ - centerZ;
+  const lenN = Math.sqrt(nx*nx + ny*ny + nz*nz);
+  const normN = { x: nx/lenN, y: ny/lenN, z: nz/lenN };
+
+  // Light direction
+  const lenL = Math.sqrt(dx*dx + dy*dy + dz*dz);
+  const normL = { x: -dx/lenL, y: -dy/lenL, z: -dz/lenL };
+
+  // Specular highlight (Phong model)
+  const dotNL = Math.max(0, normN.x*normL.x + normN.y*normL.y + normN.z*normL.z);
+  const specular = Math.pow(dotNL, SPECULAR_POWER) * SPECULAR_AMOUNT;
+
+  return { diffuse, specular };
+};
+
+const applyLighting = (hex, diffuse, specular) => {
+  const h = hex.replace('#','');
+  const r = Math.min(255, Math.round(parseInt(h.substr(0,2),16) * diffuse + 255 * specular));
+  const g = Math.min(255, Math.round(parseInt(h.substr(2,2),16) * diffuse + 255 * specular));
+  const b = Math.min(255, Math.round(parseInt(h.substr(4,2),16) * diffuse + 255 * specular));
+  return `rgb(${r},${g},${b})`;
+};
+
+// === Create Default Sphere ===
+const createSphere = (radius = 18, color = '#8ecae6') => {
+  const dots = new Map();
+  const center = GRID / 2;
+  for (let x = 0; x < GRID; x++) {
+    for (let y = 0; y < GRID; y++) {
+      for (let z = 0; z < LAYERS; z++) {
+        const dx = x - center;
+        const dy = y - center;
+        const dz = z - center;
+        if (dx*dx + dy*dy + dz*dz <= radius*radius) {
+          dots.set(key(x,y,z), color);
+        }
+      }
+    }
+  }
+  return dots;
+};
+
+function App() {
+  const [dots, setDots] = useState(() => createSphere(18, '#8ecae6'));
+  const [color, setColor] = useState('#8ecae6');
+  const [rot, setRot] = useState(45);
+  const [layer, setLayer] = useState(32);
+  const [mode, setMode] = useState('draw');
+  const [lightPos, setLightPos] = useState({x:10, y:10, z:10});
+  
+  const canvasRef = useRef(null);
+  const sphereCenter = GRID / 2;
+
+  const clickCell = (x,y) => {
+    const k = key(x,y,layer);
+    setDots(prev => {
+      const m = new Map(prev);
+      mode==='erase' ? m.delete(k) : m.set(k,color);
+      return m;
+    });
+  };
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const size = 600;
+    canvas.width = size;
+    canvas.height = size;
+
+    ctx.clearRect(0,0,size,size);
+    const cx = size/2, cy = size/2;
+
+    const list = [];
+    for (const [k,c] of dots) {
+      const [x,y,z] = k.split(',').map(Number);
+      list.push({x,y,z,baseColor:c});
+    }
+    list.sort((a,b) => a.x+a.y+a.z - (b.x+b.y+b.z));
+
+    for (const d of list) {
+      const { diffuse, specular } = calculateLighting(
+        d.x, d.y, d.z,
+        lightPos.x, lightPos.y, lightPos.z,
+        sphereCenter, sphereCenter, sphereCenter
+      );
+      const litColor = applyLighting(d.baseColor, diffuse, specular);
+      const p = project(d.x,d.y,d.z,rot);
+      
+      ctx.beginPath();
+      ctx.arc(cx + p.x * SPACING, cy + p.y * SPACING, DOT_RADIUS, 0, Math.PI*2);
+      ctx.fillStyle = litColor;
+      ctx.fill();
+    }
+  }, [dots, rot, lightPos]);
+
+  const cells = useMemo(() => {
+    const arr = [];
+    for (let y=0; y<GRID; y++) {
+      for (let x=0; x<GRID; x++) {
+        arr.push({x,y,filled: dots.has(key(x,y,layer)), c: dots.get(key(x,y,layer))});
+      }
+    }
+    return arr;
+  }, [dots, layer]);
+
+  return (
+    <>
+      <div className="top-bar">
+        <button className={"btn "+(mode==='draw'?'active':'')} onClick={()=>setMode('draw')}>Draw</button>
+        <button className={"btn "+(mode==='erase'?'active':'')} onClick={()=>setMode('erase')}>Erase</button>
+        <button className="btn" onClick={()=>setDots(createSphere(18, color))}>Reset Sphere</button>
+        <div className="palette">
+          {COLORS.map(c=>(
+            <div key={c} className={"swatch "+(color===c?'selected':'')} style={{background:c}} onClick={()=>setColor(c)} />
+          ))}
+        </div>
+      </div>
+
+      <div className="preview-box">
+        <h3 style={{marginBottom:10}}>Sphere • Diffuse + Specular Highlights</h3>
+        <canvas ref={canvasRef} width="600" height="600"></canvas>
+        <div className="controls">
+          <div className="control-item">
+            <span>Rotate: {rot}°</span>
+            <input type="range" min="0" max="360" value={rot} onChange={e=>setRot(+e.target.value)} />
+          </div>
+          <div className="control-item">
+            <span>View Layer: {layer+1}/{LAYERS}</span>
+            <input type="range" min="0" max={LAYERS-1} value={layer} onChange={e=>setLayer(+e.target.value)} />
+          </div>
+          <div className="control-item">
+            <span>Light X: {lightPos.x}</span>
+            <input type="range" min="0" max={GRID} value={lightPos.x} onChange={e=>setLightPos(p=>({...p, x:+e.target.value}))} />
+          </div>
+          <div className="control-item">
+            <span>Light Y: {lightPos.y}</span>
+            <input type="range" min="0" max={GRID} value={lightPos.y} onChange={e=>setLightPos(p=>({...p, y:+e.target.value}))} />
+          </div>
+          <div className="control-item">
+            <span>Light Z: {lightPos.z}</span>
+            <input type="range" min="0" max={LAYERS-1} value={lightPos.z} onChange={e=>setLightPos(p=>({...p, z:+e.target.value}))} />
+          </div>
+        </div>
+      </div>
+
+      <div className="grid-box">
+        <h3 style={{marginBottom:10}}>64×64 Grid Editor</h3>
+        <div className="grid">
+          {cells.map(cell=>(
+            <button
+              key={cell.x+'-'+cell.y}
+              className={"cell "+(cell.filled?'filled':'')}
+              style={cell.filled ? {'--c': cell.c} : {}}
+              onClick={()=>clickCell(cell.x,cell.y)}
+            />
+          ))}
+        </div>
+      </div>
+    </>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
