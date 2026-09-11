@@ -109,8 +109,6 @@ const SPACING = 3.5;
 const COLORS = ['#e63946','#f4a261','#e9c46a','#2a9d8f','#8ecae6','#ffb703','#ffffff','#111'];
 const MAX_LIGHT_DISTANCE = 45;
 
-const GLOW_RADIUS_MULTIPLIER = 3.6;
-const BLOOM_RADIUS_MULTIPLIER = 5.8;
 const DOT_ALPHA = 0.55;
 
 const GLASS_IOR = 1.18;
@@ -326,32 +324,6 @@ function App() {
       const p = project(d.x,d.y,d.z,rot);
       const px = cx + p.x * SPACING;
       const py = cy + p.y * SPACING;
-
-      if (mix.glow > 0) {
-        const glowRadius = DOT_RADIUS * GLOW_RADIUS_MULTIPLIER;
-        const bloomRadius = DOT_RADIUS * BLOOM_RADIUS_MULTIPLIER;
-        const bloomGradient = ctx.createRadialGradient(px, py, DOT_RADIUS * 0.2, px, py, bloomRadius);
-        bloomGradient.addColorStop(0, hexToRGBA(d.color, 0.045 * mix.glow));
-        bloomGradient.addColorStop(0.45, hexToRGBA(d.color, 0.018 * mix.glow));
-        bloomGradient.addColorStop(1, hexToRGBA(d.color, 0));
-        const glowGradient = ctx.createRadialGradient(px, py, DOT_RADIUS * 0.25, px, py, glowRadius);
-        glowGradient.addColorStop(0, hexToRGBA(d.color, 0.11 * mix.glow));
-        glowGradient.addColorStop(0.65, hexToRGBA(d.color, 0.035 * mix.glow));
-        glowGradient.addColorStop(1, hexToRGBA(d.color, 0));
-
-        ctx.save();
-        ctx.globalCompositeOperation = 'screen';
-        ctx.globalAlpha = 0.9;
-        ctx.beginPath();
-        ctx.arc(px, py, bloomRadius, 0, Math.PI*2);
-        ctx.fillStyle = bloomGradient;
-        ctx.fill();
-        ctx.beginPath();
-        ctx.arc(px, py, glowRadius, 0, Math.PI*2);
-        ctx.fillStyle = glowGradient;
-        ctx.fill();
-        ctx.restore();
-      }
 
       let finalColor = hexToRgb(d.color);
 
