@@ -116,6 +116,7 @@ const GLASS_IOR = 1.18;
 const FRESNEL_POWER = 3.2;
 const REFRACTION_AMOUNT = 0.65;
 const TRANSMISSION = 0.72;
+const MAX_MEDIAN_BLUR_RADIUS = 2;
 
 const key = (x,y,z) => `${x},${y},${z}`;
 const project = (x,y,z,rot) => {
@@ -270,6 +271,54 @@ const drawGlowEffect = (ctx, px, py, color, opacity, lightness) => {
   ctx.drawImage(canvas, px - radius, py - radius);
   ctx.restore();
 };
+const applyMedianBlur = (ctx, width, height, radius) => {
+  if (radius <= 0) return;
+  const source = ctx.getImageData(0, 0, width, height);
+  const src = source.data;
+  const output = new Uint8ClampedArray(src);
+  const rValues = [];
+  const gValues = [];
+  const bValues = [];
+  const aValues = [];
+  const kernel = radius * 2 + 1;
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      rValues.length = 0;
+      gValues.length = 0;
+      bValues.length = 0;
+      aValues.length = 0;
+
+      for (let ky = -radius; ky <= radius; ky++) {
+        const ny = y + ky;
+        if (ny < 0 || ny >= height) continue;
+        for (let kx = -radius; kx <= radius; kx++) {
+          const nx = x + kx;
+          if (nx < 0 || nx >= width) continue;
+          const nidx = (ny * width + nx) * 4;
+          rValues.push(src[nidx]);
+          gValues.push(src[nidx + 1]);
+          bValues.push(src[nidx + 2]);
+          aValues.push(src[nidx + 3]);
+        }
+      }
+
+      rValues.sort((a,b) => a - b);
+      gValues.sort((a,b) => a - b);
+      bValues.sort((a,b) => a - b);
+      aValues.sort((a,b) => a - b);
+      const mid = Math.floor(rValues.length / 2);
+      const idx = (y * width + x) * 4;
+      output[idx] = rValues[mid];
+      output[idx + 1] = gValues[mid];
+      output[idx + 2] = bValues[mid];
+      output[idx + 3] = aValues[mid];
+    }
+  }
+
+  source.data.set(output);
+  ctx.putImageData(source, 0, 0);
+};
 const createSphere = (radius = 18, color = '#8ecae6', mix = DEFAULT_MIX) => {
   const dots = new Map();
   const center = GRID / 2;
@@ -297,6 +346,7 @@ function App() {
   const [layer, setLayer] = useState(32);
   const [mode, setMode] = useState('draw');
   const [lightPos, setLightPos] = useState({x:10, y:10, z:10});
+  const [medianBlurRadius, setMedianBlurRadius] = useState(0);
   const canvasRef = useRef(null);
   const sphereCenter = GRID / 2;
 
@@ -368,7 +418,8 @@ function App() {
         ctx.restore();
       }
     }
-  }, [dots, rot, lightPos]);
+    applyMedianBlur(ctx, size, size, medianBlurRadius);
+  }, [dots, rot, lightPos, medianBlurRadius]);
 
   const cells = useMemo(() => {
     const arr = [];
@@ -429,6 +480,10 @@ function App() {
           <div className="control-item">
             <span>Paint Refraction Opacity: {Math.round(paintMix.refraction * 100)}%</span>
             <input type="range" min="0" max="100" value={Math.round(paintMix.refraction * 100)} onChange={e=>setPaintMix(m=>({...m, refraction: +e.target.value / 100}))} />
+          </div>
+          <div className="control-item">
+            <span>Median Blur Radius: {medianBlurRadius}</span>
+            <input type="range" min="0" max={MAX_MEDIAN_BLUR_RADIUS} step="1" value={medianBlurRadius} onChange={e=>setMedianBlurRadius(+e.target.value)} />
           </div>
         </div>
       </div>
