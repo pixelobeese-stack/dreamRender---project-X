@@ -119,6 +119,8 @@ const GLASS_IOR = 1.18;         // Glass-like index of refraction
 const FRESNEL_POWER = 3.2;      // Edge glow sharpness
 const REFRACTION_AMOUNT = 0.65; // Refracted light influence
 const TRANSMISSION = 0.72;      // Base light passing through glass
+const SPECULAR_POWER = 72;      // Tight glossy highlight
+const SPECULAR_AMOUNT = 0.36;   // Specular intensity
 
 const key = (x,y,z) => `${x},${y},${z}`;
 const project = (x,y,z,rot) => {
@@ -171,28 +173,35 @@ const calculateGlassLighting = (dotX, dotY, dotZ, lightX, lightY, lightZ, center
     z: camera.z - dotZ
   });
   const lightDir = normalize({ x: -dx, y: -dy, z: -dz });
+  const halfDir = normalize({
+    x: lightDir.x + viewDir.x,
+    y: lightDir.y + viewDir.y,
+    z: lightDir.z + viewDir.z
+  });
 
   // Fresnel term brightens edges like glass reflections.
   const fresnel = Math.pow(1 - Math.max(0, dot(normal, viewDir)), FRESNEL_POWER);
+  const specular = Math.pow(Math.max(0, dot(normal, halfDir)), SPECULAR_POWER) * SPECULAR_AMOUNT;
 
   // Approximate internal bending of view rays through the surface.
   const refracted = normalize(refract({ x: -viewDir.x, y: -viewDir.y, z: -viewDir.z }, normal, 1 / GLASS_IOR));
   const refractiveLight = Math.pow(Math.max(0, dot(refracted, lightDir)), 2.2) * REFRACTION_AMOUNT;
 
-  return { diffuse, fresnel, refractiveLight };
+  return { diffuse, fresnel, refractiveLight, specular };
 };
 
-const applyGlassLighting = (hex, diffuse, fresnel, refractiveLight) => {
+const applyGlassLighting = (hex, diffuse, fresnel, refractiveLight, specular) => {
   const h = hex.replace('#','');
   const baseR = parseInt(h.substr(0,2),16);
   const baseG = parseInt(h.substr(2,2),16);
   const baseB = parseInt(h.substr(4,2),16);
-  const edgeGlow = fresnel * 95;
+  const edgeGlow = fresnel * 80;
   const refractedGlow = refractiveLight * 135;
-  const r = Math.min(255, Math.round(baseR * diffuse * TRANSMISSION + edgeGlow + refractedGlow * 0.5));
-  const g = Math.min(255, Math.round(baseG * diffuse * TRANSMISSION + edgeGlow + refractedGlow * 0.75));
-  const b = Math.min(255, Math.round(baseB * diffuse * TRANSMISSION + edgeGlow * 1.3 + refractedGlow));
-  const alpha = clamp(0.38 + diffuse * 0.24 + fresnel * 0.3 + refractiveLight * 0.18, 0.35, 0.95);
+  const specularGlow = specular * 255;
+  const r = Math.min(255, Math.round(baseR * diffuse * TRANSMISSION + edgeGlow + refractedGlow * 0.5 + specularGlow));
+  const g = Math.min(255, Math.round(baseG * diffuse * TRANSMISSION + edgeGlow + refractedGlow * 0.75 + specularGlow));
+  const b = Math.min(255, Math.round(baseB * diffuse * TRANSMISSION + edgeGlow * 1.3 + refractedGlow + specularGlow));
+  const alpha = clamp(0.4 + diffuse * 0.24 + fresnel * 0.24 + refractiveLight * 0.16 + specular * 0.12, 0.4, 0.95);
   return `rgba(${r},${g},${b},${alpha})`;
 };
 
@@ -254,12 +263,12 @@ function App() {
     list.sort((a,b) => a.x+a.y+a.z - (b.x+b.y+b.z));
 
     for (const d of list) {
-      const { diffuse, fresnel, refractiveLight } = calculateGlassLighting(
+      const { diffuse, fresnel, refractiveLight, specular } = calculateGlassLighting(
         d.x, d.y, d.z,
         lightPos.x, lightPos.y, lightPos.z,
         sphereCenter, sphereCenter, sphereCenter
       );
-      const litColor = applyGlassLighting(d.baseColor, diffuse, fresnel, refractiveLight);
+      const litColor = applyGlassLighting(d.baseColor, diffuse, fresnel, refractiveLight, specular);
       const p = project(d.x,d.y,d.z,rot);
       
       ctx.beginPath();
