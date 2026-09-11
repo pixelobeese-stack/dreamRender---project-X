@@ -114,7 +114,9 @@ const LAYERS = 64;
 const DOT_RADIUS = 2.5;
 const SPACING = 3.5;
 const COLORS = ['#e63946','#f4a261','#e9c46a','#2a9d8f','#8ecae6','#ffb703','#ffffff','#111'];
-const GLOW_RADIUS_MULTIPLIER = 4.6;
+const GLOW_RADIUS_MULTIPLIER = 3.9;
+const BLOOM_RADIUS_MULTIPLIER = 6.6;
+const DOT_ALPHA = 0.72;
 
 const key = (x,y,z) => `${x},${y},${z}`;
 const project = (x,y,z,rot) => {
@@ -197,13 +199,22 @@ function App() {
       const px = cx + p.x * SPACING;
       const py = cy + p.y * SPACING;
       const glowRadius = DOT_RADIUS * GLOW_RADIUS_MULTIPLIER;
+      const bloomRadius = DOT_RADIUS * BLOOM_RADIUS_MULTIPLIER;
+      const bloomGradient = ctx.createRadialGradient(px, py, DOT_RADIUS * 0.2, px, py, bloomRadius);
+      bloomGradient.addColorStop(0, hexToRGBA(d.baseColor, 0.09));
+      bloomGradient.addColorStop(0.45, hexToRGBA(d.baseColor, 0.04));
+      bloomGradient.addColorStop(1, hexToRGBA(d.baseColor, 0));
       const glowGradient = ctx.createRadialGradient(px, py, DOT_RADIUS * 0.25, px, py, glowRadius);
-      glowGradient.addColorStop(0, hexToRGBA(d.baseColor, 0.34));
-      glowGradient.addColorStop(0.65, hexToRGBA(d.baseColor, 0.12));
+      glowGradient.addColorStop(0, hexToRGBA(d.baseColor, 0.18));
+      glowGradient.addColorStop(0.65, hexToRGBA(d.baseColor, 0.06));
       glowGradient.addColorStop(1, hexToRGBA(d.baseColor, 0));
 
       ctx.save();
       ctx.globalCompositeOperation = 'lighter';
+      ctx.beginPath();
+      ctx.arc(px, py, bloomRadius, 0, Math.PI*2);
+      ctx.fillStyle = bloomGradient;
+      ctx.fill();
       ctx.beginPath();
       ctx.arc(px, py, glowRadius, 0, Math.PI*2);
       ctx.fillStyle = glowGradient;
@@ -212,7 +223,7 @@ function App() {
 
       ctx.beginPath();
       ctx.arc(px, py, DOT_RADIUS, 0, Math.PI*2);
-      ctx.fillStyle = d.baseColor;
+      ctx.fillStyle = hexToRGBA(d.baseColor, DOT_ALPHA);
       ctx.fill();
     }
   }, [dots, rot]);
@@ -241,7 +252,7 @@ function App() {
       </div>
 
       <div className="preview-box">
-        <h3 style={{marginBottom:10}}>Sphere • Diffuse + Specular Highlights</h3>
+        <h3 style={{marginBottom:10}}>Sphere • Transparent Dots + Bloom Glow</h3>
         <canvas ref={canvasRef} width="600" height="600"></canvas>
         <div className="controls">
           <div className="control-item">
