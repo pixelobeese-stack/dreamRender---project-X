@@ -116,7 +116,10 @@ const SPACING = 3.5;
 const COLORS = ['#e63946','#f4a261','#e9c46a','#2a9d8f','#8ecae6','#ffb703','#ffffff','#111'];
 const MAX_LIGHT_DISTANCE = 45;
 const SPECULAR_POWER = 32;   // Shine sharpness
-const SPECULAR_AMOUNT = 0.6; // Brightness of highlights
+const SPECULAR_AMOUNT = 0.9; // Brightness of highlights
+const BRIGHTNESS_BOOST = 1.25;
+const GLOW_RADIUS_MULTIPLIER = 2.2;
+const GLOW_BLUR = 10;
 
 const key = (x,y,z) => `${x},${y},${z}`;
 const project = (x,y,z,rot) => {
@@ -136,7 +139,7 @@ const calculateLighting = (dotX, dotY, dotZ, lightX, lightY, lightZ, centerX, ce
   const dy = dotY - lightY;
   const dz = dotZ - lightZ;
   const distance = Math.sqrt(dx*dx + dy*dy + dz*dz);
-  const diffuse = Math.max(0.15, 1 - (distance / MAX_LIGHT_DISTANCE));
+  const diffuse = Math.max(0.25, 1 - (distance / MAX_LIGHT_DISTANCE));
 
   // Surface normal (from sphere center)
   const nx = dotX - centerX;
@@ -152,15 +155,17 @@ const calculateLighting = (dotX, dotY, dotZ, lightX, lightY, lightZ, centerX, ce
   // Specular highlight (Phong model)
   const dotNL = Math.max(0, normN.x*normL.x + normN.y*normL.y + normN.z*normL.z);
   const specular = Math.pow(dotNL, SPECULAR_POWER) * SPECULAR_AMOUNT;
+  const glow = Math.pow(Math.max(0, 1 - (distance / (MAX_LIGHT_DISTANCE * 0.7))), 2);
 
-  return { diffuse, specular };
+  return { diffuse, specular, glow };
 };
 
 const applyLighting = (hex, diffuse, specular) => {
+  const lit = diffuse * BRIGHTNESS_BOOST;
   const h = hex.replace('#','');
-  const r = Math.min(255, Math.round(parseInt(h.substr(0,2),16) * diffuse + 255 * specular));
-  const g = Math.min(255, Math.round(parseInt(h.substr(2,2),16) * diffuse + 255 * specular));
-  const b = Math.min(255, Math.round(parseInt(h.substr(4,2),16) * diffuse + 255 * specular));
+  const r = Math.min(255, Math.round(parseInt(h.substr(0,2),16) * lit + 255 * specular));
+  const g = Math.min(255, Math.round(parseInt(h.substr(2,2),16) * lit + 255 * specular));
+  const b = Math.min(255, Math.round(parseInt(h.substr(4,2),16) * lit + 255 * specular));
   return `rgb(${r},${g},${b})`;
 };
 
@@ -222,16 +227,29 @@ function App() {
     list.sort((a,b) => a.x+a.y+a.z - (b.x+b.y+b.z));
 
     for (const d of list) {
-      const { diffuse, specular } = calculateLighting(
+      const { diffuse, specular, glow } = calculateLighting(
         d.x, d.y, d.z,
         lightPos.x, lightPos.y, lightPos.z,
         sphereCenter, sphereCenter, sphereCenter
       );
       const litColor = applyLighting(d.baseColor, diffuse, specular);
       const p = project(d.x,d.y,d.z,rot);
+      const px = cx + p.x * SPACING;
+      const py = cy + p.y * SPACING;
+
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.globalAlpha = Math.min(0.9, 0.25 + glow * 0.55 + specular * 0.2);
+      ctx.shadowBlur = GLOW_BLUR + glow * 18;
+      ctx.shadowColor = litColor;
+      ctx.beginPath();
+      ctx.arc(px, py, DOT_RADIUS * GLOW_RADIUS_MULTIPLIER, 0, Math.PI*2);
+      ctx.fillStyle = litColor;
+      ctx.fill();
+      ctx.restore();
       
       ctx.beginPath();
-      ctx.arc(cx + p.x * SPACING, cy + p.y * SPACING, DOT_RADIUS, 0, Math.PI*2);
+      ctx.arc(px, py, DOT_RADIUS, 0, Math.PI*2);
       ctx.fillStyle = litColor;
       ctx.fill();
     }
