@@ -114,12 +114,7 @@ const LAYERS = 64;
 const DOT_RADIUS = 2.5;
 const SPACING = 3.5;
 const COLORS = ['#e63946','#f4a261','#e9c46a','#2a9d8f','#8ecae6','#ffb703','#ffffff','#111'];
-const MAX_LIGHT_DISTANCE = 45;
-const SPECULAR_POWER = 32;   // Shine sharpness
-const SPECULAR_AMOUNT = 0.55; // Brightness of highlights
-const BRIGHTNESS_BOOST = 1.0;
-const GLOW_RADIUS_MULTIPLIER = 4.8;
-const GLOW_BLUR = 6;
+const GLOW_RADIUS_MULTIPLIER = 4.6;
 
 const key = (x,y,z) => `${x},${y},${z}`;
 const project = (x,y,z,rot) => {
@@ -132,51 +127,14 @@ const project = (x,y,z,rot) => {
   };
 };
 
-// === Lighting + Specular ===
-const calculateLighting = (dotX, dotY, dotZ, lightX, lightY, lightZ, centerX, centerY, centerZ) => {
-  // Keep base lighting bright (no dark shading falloff)
-  const dx = dotX - lightX;
-  const dy = dotY - lightY;
-  const dz = dotZ - lightZ;
-  const distance = Math.sqrt(dx*dx + dy*dy + dz*dz);
-  const diffuse = 1;
-
-  // Surface normal (from sphere center)
-  const nx = dotX - centerX;
-  const ny = dotY - centerY;
-  const nz = dotZ - centerZ;
-  const lenN = Math.sqrt(nx*nx + ny*ny + nz*nz) || 1;
-  const normN = { x: nx/lenN, y: ny/lenN, z: nz/lenN };
-
-  // Light direction
-  const lenL = Math.sqrt(dx*dx + dy*dy + dz*dz) || 1;
-  const normL = { x: -dx/lenL, y: -dy/lenL, z: -dz/lenL };
-
-  // Specular highlight (Phong model)
-  const dotNL = Math.max(0, normN.x*normL.x + normN.y*normL.y + normN.z*normL.z) || 0;
-  const specular = Math.pow(dotNL, SPECULAR_POWER) * SPECULAR_AMOUNT;
-  const glow = Math.pow(Math.max(0, 1 - (distance / (MAX_LIGHT_DISTANCE * 0.7))), 2);
-
-  return { diffuse, specular, glow };
-};
-
-const applyLighting = (hex, diffuse, specular) => {
-  const lit = diffuse * BRIGHTNESS_BOOST;
+const hexToRGBA = (hex, alpha) => {
   const raw = hex.replace('#','');
   const h = raw.length === 3 ? raw.split('').map(ch => ch + ch).join('') : raw;
-  const br = parseInt(h.substr(0,2),16) || 0;
-  const bg = parseInt(h.substr(2,2),16) || 0;
-  const bb = parseInt(h.substr(4,2),16) || 0;
-  const r = Math.min(255, Math.round(br * lit + 255 * specular));
-  const g = Math.min(255, Math.round(bg * lit + 255 * specular));
-  const b = Math.min(255, Math.round(bb * lit + 255 * specular));
-  return `rgb(${r},${g},${b})`;
-};
-
-const toRGBA = (rgb, alpha) => {
-  const parts = rgb.match(/\d+/g);
-  if (!parts || parts.length < 3) return `rgba(255,255,255,${Math.max(0, Math.min(1, alpha))})`;
-  return `rgba(${parts[0]},${parts[1]},${parts[2]},${Math.max(0, Math.min(1, alpha))})`;
+  const r = parseInt(h.substr(0,2),16) || 0;
+  const g = parseInt(h.substr(2,2),16) || 0;
+  const b = parseInt(h.substr(4,2),16) || 0;
+  const a = Math.max(0, Math.min(1, alpha));
+  return `rgba(${r},${g},${b},${a})`;
 };
 
 // === Create Default Sphere ===
@@ -204,10 +162,8 @@ function App() {
   const [rot, setRot] = useState(45);
   const [layer, setLayer] = useState(32);
   const [mode, setMode] = useState('draw');
-  const [lightPos, setLightPos] = useState({x:10, y:10, z:10});
   
   const canvasRef = useRef(null);
-  const sphereCenter = GRID / 2;
 
   const clickCell = (x,y) => {
     const k = key(x,y,layer);
@@ -237,38 +193,29 @@ function App() {
     list.sort((a,b) => a.x+a.y+a.z - (b.x+b.y+b.z));
 
     for (const d of list) {
-      const { diffuse, specular, glow } = calculateLighting(
-        d.x, d.y, d.z,
-        lightPos.x, lightPos.y, lightPos.z,
-        sphereCenter, sphereCenter, sphereCenter
-      );
-      const litColor = applyLighting(d.baseColor, diffuse, specular);
       const p = project(d.x,d.y,d.z,rot);
       const px = cx + p.x * SPACING;
       const py = cy + p.y * SPACING;
-
       const glowRadius = DOT_RADIUS * GLOW_RADIUS_MULTIPLIER;
       const glowGradient = ctx.createRadialGradient(px, py, DOT_RADIUS * 0.25, px, py, glowRadius);
-      glowGradient.addColorStop(0, toRGBA(litColor, 0.18 + glow * 0.18));
-      glowGradient.addColorStop(0.6, toRGBA(litColor, 0.08 + glow * 0.1));
-      glowGradient.addColorStop(1, toRGBA(litColor, 0));
+      glowGradient.addColorStop(0, hexToRGBA(d.baseColor, 0.34));
+      glowGradient.addColorStop(0.65, hexToRGBA(d.baseColor, 0.12));
+      glowGradient.addColorStop(1, hexToRGBA(d.baseColor, 0));
 
       ctx.save();
       ctx.globalCompositeOperation = 'lighter';
-      ctx.shadowBlur = GLOW_BLUR + glow * 12;
-      ctx.shadowColor = litColor;
       ctx.beginPath();
       ctx.arc(px, py, glowRadius, 0, Math.PI*2);
       ctx.fillStyle = glowGradient;
       ctx.fill();
       ctx.restore();
-      
+
       ctx.beginPath();
       ctx.arc(px, py, DOT_RADIUS, 0, Math.PI*2);
-      ctx.fillStyle = litColor;
+      ctx.fillStyle = d.baseColor;
       ctx.fill();
     }
-  }, [dots, rot, lightPos]);
+  }, [dots, rot]);
 
   const cells = useMemo(() => {
     const arr = [];
@@ -304,18 +251,6 @@ function App() {
           <div className="control-item">
             <span>View Layer: {layer+1}/{LAYERS}</span>
             <input type="range" min="0" max={LAYERS-1} value={layer} onChange={e=>setLayer(+e.target.value)} />
-          </div>
-          <div className="control-item">
-            <span>Light X: {lightPos.x}</span>
-            <input type="range" min="0" max={GRID} value={lightPos.x} onChange={e=>setLightPos(p=>({...p, x:+e.target.value}))} />
-          </div>
-          <div className="control-item">
-            <span>Light Y: {lightPos.y}</span>
-            <input type="range" min="0" max={GRID} value={lightPos.y} onChange={e=>setLightPos(p=>({...p, y:+e.target.value}))} />
-          </div>
-          <div className="control-item">
-            <span>Light Z: {lightPos.z}</span>
-            <input type="range" min="0" max={LAYERS-1} value={lightPos.z} onChange={e=>setLightPos(p=>({...p, z:+e.target.value}))} />
           </div>
         </div>
       </div>
