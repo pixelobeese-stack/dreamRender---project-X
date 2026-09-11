@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Sphere • Lighting + Specular Highlights</title>
+<title>Sphere • Glass Refraction</title>
 <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -115,8 +115,10 @@ const DOT_RADIUS = 2.5;
 const SPACING = 3.5;
 const COLORS = ['#e63946','#f4a261','#e9c46a','#2a9d8f','#8ecae6','#ffb703','#ffffff','#111'];
 const MAX_LIGHT_DISTANCE = 45;
-const SPECULAR_POWER = 32;   // Shine sharpness
-const SPECULAR_AMOUNT = 0.6; // Brightness of highlights
+const GLASS_IOR = 1.18;         // Glass-like index of refraction
+const FRESNEL_POWER = 3.2;      // Edge glow sharpness
+const REFRACTION_AMOUNT = 0.65; // Refracted light influence
+const TRANSMISSION = 0.72;      // Base light passing through glass
 
 const key = (x,y,z) => `${x},${y},${z}`;
 const project = (x,y,z,rot) => {
@@ -129,39 +131,69 @@ const project = (x,y,z,rot) => {
   };
 };
 
-// === Lighting + Specular ===
-const calculateLighting = (dotX, dotY, dotZ, lightX, lightY, lightZ, centerX, centerY, centerZ) => {
+const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
+const dot = (a, b) => a.x * b.x + a.y * b.y + a.z * b.z;
+const normalize = (v) => {
+  const len = Math.hypot(v.x, v.y, v.z) || 1;
+  return { x: v.x / len, y: v.y / len, z: v.z / len };
+};
+const refract = (incident, normal, eta) => {
+  const cosi = clamp(dot(incident, normal), -1, 1);
+  const k = 1 - eta * eta * (1 - cosi * cosi);
+  if (k < 0) return { x: 0, y: 0, z: 0 };
+  return {
+    x: eta * incident.x - (eta * cosi + Math.sqrt(k)) * normal.x,
+    y: eta * incident.y - (eta * cosi + Math.sqrt(k)) * normal.y,
+    z: eta * incident.z - (eta * cosi + Math.sqrt(k)) * normal.z
+  };
+};
+
+// === Glass-like lighting + refraction ===
+const calculateGlassLighting = (dotX, dotY, dotZ, lightX, lightY, lightZ, centerX, centerY, centerZ) => {
   // Distance-based diffuse lighting
   const dx = dotX - lightX;
   const dy = dotY - lightY;
   const dz = dotZ - lightZ;
-  const distance = Math.sqrt(dx*dx + dy*dy + dz*dz);
-  const diffuse = Math.max(0.15, 1 - (distance / MAX_LIGHT_DISTANCE));
+  const distance = Math.hypot(dx, dy, dz);
+  const diffuse = Math.max(0.2, 1 - (distance / MAX_LIGHT_DISTANCE));
 
-  // Surface normal (from sphere center)
-  const nx = dotX - centerX;
-  const ny = dotY - centerY;
-  const nz = dotZ - centerZ;
-  const lenN = Math.sqrt(nx*nx + ny*ny + nz*nz);
-  const normN = { x: nx/lenN, y: ny/lenN, z: nz/lenN };
+  const normal = normalize({
+    x: dotX - centerX,
+    y: dotY - centerY,
+    z: dotZ - centerZ
+  });
 
-  // Light direction
-  const lenL = Math.sqrt(dx*dx + dy*dy + dz*dz);
-  const normL = { x: -dx/lenL, y: -dy/lenL, z: -dz/lenL };
+  // Camera is placed in front of the voxel sphere.
+  const camera = { x: centerX, y: centerY, z: -50 };
+  const viewDir = normalize({
+    x: camera.x - dotX,
+    y: camera.y - dotY,
+    z: camera.z - dotZ
+  });
+  const lightDir = normalize({ x: -dx, y: -dy, z: -dz });
 
-  // Specular highlight (Phong model)
-  const dotNL = Math.max(0, normN.x*normL.x + normN.y*normL.y + normN.z*normL.z);
-  const specular = Math.pow(dotNL, SPECULAR_POWER) * SPECULAR_AMOUNT;
+  // Fresnel term brightens edges like glass reflections.
+  const fresnel = Math.pow(1 - Math.max(0, dot(normal, viewDir)), FRESNEL_POWER);
 
-  return { diffuse, specular };
+  // Approximate internal bending of view rays through the surface.
+  const refracted = normalize(refract({ x: -viewDir.x, y: -viewDir.y, z: -viewDir.z }, normal, 1 / GLASS_IOR));
+  const refractiveLight = Math.pow(Math.max(0, dot(refracted, lightDir)), 2.2) * REFRACTION_AMOUNT;
+
+  return { diffuse, fresnel, refractiveLight };
 };
 
-const applyLighting = (hex, diffuse, specular) => {
+const applyGlassLighting = (hex, diffuse, fresnel, refractiveLight) => {
   const h = hex.replace('#','');
-  const r = Math.min(255, Math.round(parseInt(h.substr(0,2),16) * diffuse + 255 * specular));
-  const g = Math.min(255, Math.round(parseInt(h.substr(2,2),16) * diffuse + 255 * specular));
-  const b = Math.min(255, Math.round(parseInt(h.substr(4,2),16) * diffuse + 255 * specular));
-  return `rgb(${r},${g},${b})`;
+  const baseR = parseInt(h.substr(0,2),16);
+  const baseG = parseInt(h.substr(2,2),16);
+  const baseB = parseInt(h.substr(4,2),16);
+  const edgeGlow = fresnel * 95;
+  const refractedGlow = refractiveLight * 135;
+  const r = Math.min(255, Math.round(baseR * diffuse * TRANSMISSION + edgeGlow + refractedGlow * 0.5));
+  const g = Math.min(255, Math.round(baseG * diffuse * TRANSMISSION + edgeGlow + refractedGlow * 0.75));
+  const b = Math.min(255, Math.round(baseB * diffuse * TRANSMISSION + edgeGlow * 1.3 + refractedGlow));
+  const alpha = clamp(0.38 + diffuse * 0.24 + fresnel * 0.3 + refractiveLight * 0.18, 0.35, 0.95);
+  return `rgba(${r},${g},${b},${alpha})`;
 };
 
 // === Create Default Sphere ===
@@ -222,12 +254,12 @@ function App() {
     list.sort((a,b) => a.x+a.y+a.z - (b.x+b.y+b.z));
 
     for (const d of list) {
-      const { diffuse, specular } = calculateLighting(
+      const { diffuse, fresnel, refractiveLight } = calculateGlassLighting(
         d.x, d.y, d.z,
         lightPos.x, lightPos.y, lightPos.z,
         sphereCenter, sphereCenter, sphereCenter
       );
-      const litColor = applyLighting(d.baseColor, diffuse, specular);
+      const litColor = applyGlassLighting(d.baseColor, diffuse, fresnel, refractiveLight);
       const p = project(d.x,d.y,d.z,rot);
       
       ctx.beginPath();
@@ -261,7 +293,7 @@ function App() {
       </div>
 
       <div className="preview-box">
-        <h3 style={{marginBottom:10}}>Sphere • Diffuse + Specular Highlights</h3>
+        <h3 style={{marginBottom:10}}>Sphere • Glass Refraction</h3>
         <canvas ref={canvasRef} width="600" height="600"></canvas>
         <div className="controls">
           <div className="control-item">
