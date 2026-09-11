@@ -299,7 +299,7 @@ const applyPerfectShading = (hex, diffuse, specular) => {
 };
 
 // === Glass effect ===
-const GLASS_IOR = 1.18;
+const GLASS_IOR = 1.45;
 const GLASS_FRESNEL_POWER = 3.2;
 const GLASS_REFRACTION = 0.65;
 const GLASS_TRANSMISSION = 0.72;
@@ -376,7 +376,7 @@ function App() {
   const [aoStrength, setAoStrength] = useState(0.65);
   const [transmissionStrength, setTransmissionStrength] = useState(0.12);
   const [specularStrength, setSpecularStrength] = useState(1.1);
-  const [glassOpacity, setGlassOpacity] = useState(0.65);
+  const [glassOpacity, setGlassOpacity] = useState(0.24);
   const [glassStrength, setGlassStrength] = useState(0.85);
 
   const canvasRef = useRef(null);
