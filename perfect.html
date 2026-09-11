@@ -115,6 +115,8 @@ const EFFECTS = [
 const MAX_LIGHT_DISTANCE = 45;
 const SPECULAR_POWER = 32;
 const SPECULAR_AMOUNT = 0.95;
+const SPECULAR_BLEND_BOOST = 1.35;
+const SPECULAR_HIGHLIGHT_BOOST = 1.8;
 const GLOW_RADIUS_MULTIPLIER = 3.6;
 const BLOOM_RADIUS_MULTIPLIER = 5.8;
 const DOT_ALPHA = 0.55;
@@ -157,14 +159,15 @@ const hexToRGBA = (hex, alpha) => {
   const b = parseInt(h.substr(4,2),16) || 0;
   return `rgba(${r},${g},${b},${clamp(alpha, 0, 1)})`;
 };
+const toGrayscale = (r, g, b) => Math.round(r * 0.299 + g * 0.587 + b * 0.114);
 const applyPhongLighting = (hex, diffuse, specular) => {
   const h = hex.replace('#','');
   const baseR = Math.round(parseInt(h.substr(0,2),16) * diffuse);
   const baseG = Math.round(parseInt(h.substr(2,2),16) * diffuse);
   const baseB = Math.round(parseInt(h.substr(4,2),16) * diffuse);
-  const highlightMix = clamp(specular * 1.35, 0, 1);
-  const grayscale = Math.round(baseR * 0.299 + baseG * 0.587 + baseB * 0.114);
-  const highlightValue = Math.min(255, Math.round(grayscale + (255 - grayscale) * Math.min(1, specular * 1.8)));
+  const highlightMix = clamp(specular * SPECULAR_BLEND_BOOST, 0, 1);
+  const grayscale = toGrayscale(baseR, baseG, baseB);
+  const highlightValue = Math.min(255, Math.round(grayscale + (255 - grayscale) * Math.min(1, specular * SPECULAR_HIGHLIGHT_BOOST)));
   const r = Math.round(baseR * (1 - highlightMix) + highlightValue * highlightMix);
   const g = Math.round(baseG * (1 - highlightMix) + highlightValue * highlightMix);
   const b = Math.round(baseB * (1 - highlightMix) + highlightValue * highlightMix);

@@ -117,6 +117,8 @@ const COLORS = ['#e63946','#f4a261','#e9c46a','#2a9d8f','#8ecae6','#ffb703','#ff
 const MAX_LIGHT_DISTANCE = 45;
 const SPECULAR_POWER = 32;   // Shine sharpness
 const SPECULAR_AMOUNT = 0.95; // Brightness of highlights
+const SPECULAR_BLEND_BOOST = 1.35;
+const SPECULAR_HIGHLIGHT_BOOST = 1.8;
 
 const key = (x,y,z) => `${x},${y},${z}`;
 const project = (x,y,z,rot) => {
@@ -156,14 +158,15 @@ const calculateLighting = (dotX, dotY, dotZ, lightX, lightY, lightZ, centerX, ce
   return { diffuse, specular };
 };
 
+const toGrayscale = (r, g, b) => Math.round(r * 0.299 + g * 0.587 + b * 0.114);
 const applyLighting = (hex, diffuse, specular) => {
   const h = hex.replace('#','');
   const baseR = Math.round(parseInt(h.substr(0,2),16) * diffuse);
   const baseG = Math.round(parseInt(h.substr(2,2),16) * diffuse);
   const baseB = Math.round(parseInt(h.substr(4,2),16) * diffuse);
-  const highlightMix = Math.max(0, Math.min(1, specular * 1.35));
-  const grayscale = Math.round(baseR * 0.299 + baseG * 0.587 + baseB * 0.114);
-  const highlightValue = Math.min(255, Math.round(grayscale + (255 - grayscale) * Math.min(1, specular * 1.8)));
+  const highlightMix = Math.max(0, Math.min(1, specular * SPECULAR_BLEND_BOOST));
+  const grayscale = toGrayscale(baseR, baseG, baseB);
+  const highlightValue = Math.min(255, Math.round(grayscale + (255 - grayscale) * Math.min(1, specular * SPECULAR_HIGHLIGHT_BOOST)));
   const r = Math.round(baseR * (1 - highlightMix) + highlightValue * highlightMix);
   const g = Math.round(baseG * (1 - highlightMix) + highlightValue * highlightMix);
   const b = Math.round(baseB * (1 - highlightMix) + highlightValue * highlightMix);
