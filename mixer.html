@@ -111,9 +111,7 @@ const DEFAULT_MIX = { glow: 0, phong: 1, refraction: 0 };
 const MAX_LIGHT_DISTANCE = 45;
 const SPECULAR_POWER = 32;
 const SPECULAR_AMOUNT = 0.6;
-const GLOW_RADIUS_MULTIPLIER = 3.6;
 const BLOOM_RADIUS_MULTIPLIER = 5.8;
-const DOT_ALPHA = 0.55;
 const GLASS_IOR = 1.18;
 const FRESNEL_POWER = 3.2;
 const REFRACTION_AMOUNT = 0.65;
@@ -234,36 +232,43 @@ const calculateGlassLighting = (dotX, dotY, dotZ, lightX, lightY, lightZ, center
   const refractiveLight = Math.pow(Math.max(0, dot(refracted, lightDir)), 2.2) * REFRACTION_AMOUNT;
   return { diffuse, fresnel, refractiveLight };
 };
-const drawGlowEffect = (ctx, px, py, color, opacity) => {
+const calculateGlowLightness = (dotX, dotY, dotZ, lightX, lightY, lightZ) => {
+  const dx = dotX - lightX;
+  const dy = dotY - lightY;
+  const dz = dotZ - lightZ;
+  const distance = Math.hypot(dx, dy, dz);
+  const diffuse = Math.max(0, 1 - (distance / MAX_LIGHT_DISTANCE));
+  return clamp(0.25 + diffuse * 0.95, 0.25, 1.2);
+};
+const glowSpriteCache = new Map();
+const getGlowSprite = (color) => {
+  if (glowSpriteCache.has(color)) return glowSpriteCache.get(color);
+  const radius = DOT_RADIUS * BLOOM_RADIUS_MULTIPLIER;
+  const size = Math.ceil(radius * 2) + 2;
+  const sprite = document.createElement('canvas');
+  sprite.width = size;
+  sprite.height = size;
+  const sctx = sprite.getContext('2d');
+  const center = size / 2;
+  const gradient = sctx.createRadialGradient(center, center, DOT_RADIUS * 0.2, center, center, radius);
+  gradient.addColorStop(0, hexToRGBA(color, 0.1));
+  gradient.addColorStop(0.35, hexToRGBA(color, 0.05));
+  gradient.addColorStop(1, hexToRGBA(color, 0));
+  sctx.fillStyle = gradient;
+  sctx.fillRect(0, 0, size, size);
+  const glowSprite = { canvas: sprite, radius };
+  glowSpriteCache.set(color, glowSprite);
+  return glowSprite;
+};
+const drawGlowEffect = (ctx, px, py, color, opacity, lightness) => {
   if (opacity <= 0) return;
-  const glowRadius = DOT_RADIUS * GLOW_RADIUS_MULTIPLIER;
-  const bloomRadius = DOT_RADIUS * BLOOM_RADIUS_MULTIPLIER;
-  const bloomGradient = ctx.createRadialGradient(px, py, DOT_RADIUS * 0.2, px, py, bloomRadius);
-  bloomGradient.addColorStop(0, hexToRGBA(color, 0.045));
-  bloomGradient.addColorStop(0.45, hexToRGBA(color, 0.018));
-  bloomGradient.addColorStop(1, hexToRGBA(color, 0));
-  const glowGradient = ctx.createRadialGradient(px, py, DOT_RADIUS * 0.25, px, py, glowRadius);
-  glowGradient.addColorStop(0, hexToRGBA(color, 0.11));
-  glowGradient.addColorStop(0.65, hexToRGBA(color, 0.035));
-  glowGradient.addColorStop(1, hexToRGBA(color, 0));
-
+  const { canvas, radius } = getGlowSprite(color);
+  const alpha = clamp(opacity * lightness, 0, 1);
   ctx.save();
   ctx.globalCompositeOperation = 'screen';
-  ctx.globalAlpha = 0.88 * opacity;
-  ctx.beginPath();
-  ctx.arc(px, py, bloomRadius, 0, Math.PI*2);
-  ctx.fillStyle = bloomGradient;
-  ctx.fill();
-  ctx.beginPath();
-  ctx.arc(px, py, glowRadius, 0, Math.PI*2);
-  ctx.fillStyle = glowGradient;
-  ctx.fill();
+  ctx.globalAlpha = alpha;
+  ctx.drawImage(canvas, px - radius, py - radius);
   ctx.restore();
-
-  ctx.beginPath();
-  ctx.arc(px, py, DOT_RADIUS, 0, Math.PI*2);
-  ctx.fillStyle = hexToRGBA(color, DOT_ALPHA * opacity);
-  ctx.fill();
 };
 const createSphere = (radius = 18, color = '#8ecae6', mix = DEFAULT_MIX) => {
   const dots = new Map();
@@ -328,7 +333,11 @@ function App() {
       const mix = d.mix;
 
       if (mix.glow > 0) {
-        drawGlowEffect(ctx, px, py, d.color, mix.glow);
+        const glowLightness = calculateGlowLightness(
+          d.x, d.y, d.z,
+          lightPos.x, lightPos.y, lightPos.z
+        );
+        drawGlowEffect(ctx, px, py, d.color, mix.glow, glowLightness);
       }
       if (mix.phong > 0) {
         const { diffuse, specular } = calculatePhongLighting(
