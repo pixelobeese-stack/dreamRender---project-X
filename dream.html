@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sphere • Dream Shader Layer Mixer</title>
+<script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body {
+  background: #E2E4E7;
+  font-family: sans-serif;
+  padding: 80px 10px 20px;
+}
+.top-bar {
+  position: fixed;
+  top:0; left:0; right:0;
+  background: white;
+  padding:12px 15px;
+  display:flex;
+  gap:10px;
+  align-items:center;
+  border-bottom:1px solid #ddd;
+  flex-wrap:wrap;
+  z-index:10;
+}
+.btn {
+  padding:8px 14px;
+  border:1px solid #ccc;
+  border-radius:8px;
+  background:#f8f9fa;
+  cursor:pointer;
+}
+.btn.active {
+  background:#222;
+  color:white;
+  border-color:#222;
+}
+.palette {
+  display:flex;
+  gap:6px;
+  margin-left:10px;
+}
+.swatch {
+  width:24px; height:24px;
+  border-radius:50%;
+  border:2px solid transparent;
+  cursor:pointer;
+}
+.swatch.selected { border-color:#000; }
+.preview-box {
+  background:white;
+  border-radius:12px;
+  padding:15px;
+  margin-bottom:15px;
+}
+canvas {
+  display:block;
+  margin:0 auto;
+  background:#111;
+  border-radius:8px;
+}
+.controls {
+  margin-top:15px;
+  display:grid;
+  grid-template-columns:repeat(auto-fit, minmax(180px, 1fr));
+  gap:12px;
+}
+.control-item {
+  display:flex;
+  flex-direction:column;
+  gap:4px;
+  font-size:14px;
+}
+.grid-box {
+  background:white;
+  border-radius:12px;
+  padding:15px;
+  overflow:auto;
+  max-height:50vh;
+}
+.grid {
+  display:grid;
+  grid-template-columns:repeat(64, 1fr);
+  gap:1px;
+  width:fit-content;
+}
+.cell {
+  width:12px; height:12px;
+  border-radius:50%;
+  background:#ddd;
+  border:none;
+  cursor:pointer;
+}
+.cell.filled { background:var(--c); }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useRef, useEffect, useMemo } = React;
+
+const GRID = 64;
+const LAYERS = 64;
+const DOT_RADIUS = 2.5;
+const SPACING = 3.5;
+const COLORS = ['#e63946','#f4a261','#e9c46a','#2a9d8f','#8ecae6','#ffb703','#ffffff','#111'];
+const MAX_LIGHT_DISTANCE = 45;
+
+const PHONG_SPECULAR_POWER = 32;
+const PHONG_SPECULAR_AMOUNT = 0.6;
+
+const GLOW_RADIUS_MULTIPLIER = 3.6;
+const BLOOM_RADIUS_MULTIPLIER = 5.8;
+const DOT_ALPHA = 0.55;
+
+const GLASS_IOR = 1.18;
+const FRESNEL_POWER = 3.2;
+const REFRACTION_AMOUNT = 0.65;
+const TRANSMISSION = 0.72;
+
+const REFLECTION_SPECULAR_POWER = 48;
+const REFLECTION_SPECULAR_AMOUNT = 0.9;
+const METAL_DIFFUSE = 0.78;
+const GOLD_F0 = { r: 1.0, g: 0.86, b: 0.57 };
+
+const key = (x,y,z) => `${x},${y},${z}`;
+const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
+const dot = (a, b) => a.x * b.x + a.y * b.y + a.z * b.z;
+const normalize = (v) => {
+  const len = Math.hypot(v.x, v.y, v.z) || 1;
+  return { x: v.x / len, y: v.y / len, z: v.z / len };
+};
+const project = (x,y,z,rot) => {
+  const rad = rot * Math.PI / 180;
+  const cx = x - GRID/2;
+  const cy = y - GRID/2;
+  return {
+    x: cx*Math.cos(rad) - cy*Math.sin(rad),
+    y: cx*Math.sin(rad) + cy*Math.cos(rad) - z*0.5
+  };
+};
+const refract = (incident, normal, eta) => {
+  const cosi = clamp(dot(incident, normal), -1, 1);
+  const k = 1 - eta * eta * (1 - cosi * cosi);
+  if (k < 0) return { x: 0, y: 0, z: 0 };
+  return {
+    x: eta * incident.x - (eta * cosi + Math.sqrt(k)) * normal.x,
+    y: eta * incident.y - (eta * cosi + Math.sqrt(k)) * normal.y,
+    z: eta * incident.z - (eta * cosi + Math.sqrt(k)) * normal.z
+  };
+};
+const hexToRgb = (hex) => {
+  const raw = hex.replace('#','');
+  const h = raw.length === 3 ? raw.split('').map(ch => ch + ch).join('') : raw;
+  return {
+    r: parseInt(h.substr(0,2),16) || 0,
+    g: parseInt(h.substr(2,2),16) || 0,
+    b: parseInt(h.substr(4,2),16) || 0
+  };
+};
+const rgbToCss = ({r, g, b}) => `rgb(${Math.round(clamp(r, 0, 255))},${Math.round(clamp(g, 0, 255))},${Math.round(clamp(b, 0, 255))})`;
+const hexToRGBA = (hex, alpha) => {
+  const rgb = hexToRgb(hex);
+  return `rgba(${rgb.r},${rgb.g},${rgb.b},${clamp(alpha, 0, 1)})`;
+};
+const blendRgb = (base, overlay, amount) => ({
+  r: base.r * (1 - amount) + overlay.r * amount,
+  g: base.g * (1 - amount) + overlay.g * amount,
+  b: base.b * (1 - amount) + overlay.b * amount
+});
+
+const applyPhongLighting = (hex, diffuse, specular) => {
+  const base = hexToRgb(hex);
+  return {
+    r: Math.min(255, Math.round(base.r * diffuse + 255 * specular)),
+    g: Math.min(255, Math.round(base.g * diffuse + 255 * specular)),
+    b: Math.min(255, Math.round(base.b * diffuse + 255 * specular))
+  };
+};
+const calculatePhongLighting = (dotX, dotY, dotZ, lightX, lightY, lightZ, centerX, centerY, centerZ) => {
+  const dx = dotX - lightX;
+  const dy = dotY - lightY;
+  const dz = dotZ - lightZ;
+  const distance = Math.sqrt(dx*dx + dy*dy + dz*dz);
+  const diffuse = Math.max(0.15, 1 - (distance / MAX_LIGHT_DISTANCE));
+
+  const normal = normalize({
+    x: dotX - centerX,
+    y: dotY - centerY,
+    z: dotZ - centerZ
+  });
+  const lightDir = normalize({ x: -dx, y: -dy, z: -dz });
+  const dotNL = Math.max(0, dot(normal, lightDir));
+  const specular = Math.pow(dotNL, PHONG_SPECULAR_POWER) * PHONG_SPECULAR_AMOUNT;
+  return { diffuse, specular };
+};
+
+const calculateGlassLighting = (dotX, dotY, dotZ, lightX, lightY, lightZ, centerX, centerY, centerZ) => {
+  const dx = dotX - lightX;
+  const dy = dotY - lightY;
+  const dz = dotZ - lightZ;
+  const distance = Math.hypot(dx, dy, dz);
+  const diffuse = Math.max(0.2, 1 - (distance / MAX_LIGHT_DISTANCE));
+
+  const normal = normalize({
+    x: dotX - centerX,
+    y: dotY - centerY,
+    z: dotZ - centerZ
+  });
+  const camera = { x: centerX, y: centerY, z: -50 };
+  const viewDir = normalize({
+    x: camera.x - dotX,
+    y: camera.y - dotY,
+    z: camera.z - dotZ
+  });
+  const lightDir = normalize({ x: -dx, y: -dy, z: -dz });
+  const fresnel = Math.pow(1 - Math.max(0, dot(normal, viewDir)), FRESNEL_POWER);
+  const refracted = normalize(refract({ x: -viewDir.x, y: -viewDir.y, z: -viewDir.z }, normal, 1 / GLASS_IOR));
+  const refractiveLight = Math.pow(Math.max(0, dot(refracted, lightDir)), 2.2) * REFRACTION_AMOUNT;
+
+  const base = {
+    r: Math.min(255, Math.round(95 * fresnel + 120 * refractiveLight + 75 * diffuse * TRANSMISSION)),
+    g: Math.min(255, Math.round(95 * fresnel + 145 * refractiveLight + 95 * diffuse * TRANSMISSION)),
+    b: Math.min(255, Math.round(125 * fresnel + 185 * refractiveLight + 145 * diffuse * TRANSMISSION))
+  };
+  const alpha = clamp(0.38 + diffuse * 0.24 + fresnel * 0.3 + refractiveLight * 0.18, 0.35, 0.95);
+  return { color: base, alpha };
+};
+
+const getEnvironmentColor = (normal, viewDir) => {
+  const sky = { r: 188, g: 206, b: 246 };
+  const horizon = { r: 222, g: 198, b: 150 };
+  const ground = { r: 96, g: 76, b: 44 };
+  const t = clamp((normal.y + 1) * 0.5, 0, 1);
+  const lowBlend = {
+    r: ground.r + (horizon.r - ground.r) * (t * t),
+    g: ground.g + (horizon.g - ground.g) * (t * t),
+    b: ground.b + (horizon.b - ground.b) * (t * t)
+  };
+  const upBlend = {
+    r: horizon.r + (sky.r - horizon.r) * Math.sqrt(t),
+    g: horizon.g + (sky.g - horizon.g) * Math.sqrt(t),
+    b: horizon.b + (sky.b - horizon.b) * Math.sqrt(t)
+  };
+  const viewLift = clamp(0.6 + Math.max(0, viewDir.z) * 0.4, 0.6, 1);
+  return {
+    r: Math.round((lowBlend.r * (1 - t) + upBlend.r * t) * viewLift),
+    g: Math.round((lowBlend.g * (1 - t) + upBlend.g * t) * viewLift),
+    b: Math.round((lowBlend.b * (1 - t) + upBlend.b * t) * viewLift)
+  };
+};
+const calculateReflectionLighting = (dotX, dotY, dotZ, lightX, lightY, lightZ, centerX, centerY, centerZ, reflectionStrength) => {
+  const toLight = { x: lightX - dotX, y: lightY - dotY, z: lightZ - dotZ };
+  const distance = Math.hypot(toLight.x, toLight.y, toLight.z);
+  const lightDir = normalize(toLight);
+  const normal = normalize({
+    x: dotX - centerX,
+    y: dotY - centerY,
+    z: dotZ - centerZ
+  });
+  const camera = { x: centerX, y: centerY, z: -50 };
+  const viewDir = normalize({
+    x: camera.x - dotX,
+    y: camera.y - dotY,
+    z: camera.z - dotZ
+  });
+  const halfVec = normalize({
+    x: lightDir.x + viewDir.x,
+    y: lightDir.y + viewDir.y,
+    z: lightDir.z + viewDir.z
+  });
+  const diffuse = Math.max(0.1, 1 - (distance / MAX_LIGHT_DISTANCE));
+  const ndotl = Math.max(0, dot(normal, lightDir));
+  const ndoth = Math.max(0, dot(normal, halfVec));
+  const ndotv = Math.max(0, dot(normal, viewDir));
+  const fresnel = Math.pow(1 - ndotv, 5);
+  const reflection = clamp((0.08 + fresnel * 0.92) * reflectionStrength, 0, 1);
+  const specular = Math.pow(ndoth, REFLECTION_SPECULAR_POWER) * REFLECTION_SPECULAR_AMOUNT * (0.35 + reflection * 0.65);
+  const env = getEnvironmentColor(normal, viewDir);
+  return { diffuse: diffuse * ndotl + 0.16, specular, reflection, env };
+};
+const applyReflectionLighting = (hex, lighting) => {
+  const base = hexToRgb(hex);
+  const direct = lighting.diffuse * METAL_DIFFUSE;
+  const refl = lighting.reflection;
+  const spec = lighting.specular;
+  return {
+    r: clamp(Math.round(base.r * direct + lighting.env.r * refl * GOLD_F0.r + 255 * spec * GOLD_F0.r), 0, 255),
+    g: clamp(Math.round(base.g * direct + lighting.env.g * refl * GOLD_F0.g + 246 * spec * GOLD_F0.g), 0, 255),
+    b: clamp(Math.round(base.b * direct + lighting.env.b * refl * GOLD_F0.b + 208 * spec * GOLD_F0.b), 0, 255)
+  };
+};
+
+const createSphere = (radius = 18, color = '#8ecae6') => {
+  const dots = new Map();
+  const center = GRID / 2;
+  for (let x = 0; x < GRID; x++) {
+    for (let y = 0; y < GRID; y++) {
+      for (let z = 0; z < LAYERS; z++) {
+        const dx = x - center;
+        const dy = y - center;
+        const dz = z - center;
+        if (dx*dx + dy*dy + dz*dz <= radius*radius) {
+          dots.set(key(x,y,z), color);
+        }
+      }
+    }
+  }
+  return dots;
+};
+
+function App() {
+  const [dots, setDots] = useState(() => createSphere(18, '#8ecae6'));
+  const [color, setColor] = useState('#8ecae6');
+  const [rot, setRot] = useState(45);
+  const [layer, setLayer] = useState(32);
+  const [mode, setMode] = useState('draw');
+  const [lightPos, setLightPos] = useState({x:10, y:10, z:10});
+  const [mix, setMix] = useState({ glow: 0.85, phong: 0.9, refraction: 0.55, reflection: 0.45 });
+  const [reflectionStrength, setReflectionStrength] = useState(0.85);
+  const canvasRef = useRef(null);
+  const sphereCenter = GRID / 2;
+
+  const clickCell = (x,y) => {
+    const k = key(x,y,layer);
+    setDots(prev => {
+      const m = new Map(prev);
+      mode==='erase' ? m.delete(k) : m.set(k, color);
+      return m;
+    });
+  };
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const size = 600;
+    canvas.width = size;
+    canvas.height = size;
+    ctx.clearRect(0,0,size,size);
+    const cx = size/2, cy = size/2;
+
+    const list = [];
+    for (const [k,c] of dots) {
+      const [x,y,z] = k.split(',').map(Number);
+      list.push({x,y,z,color:c});
+    }
+    list.sort((a,b) => a.x+a.y+a.z - (b.x+b.y+b.z));
+
+    for (const d of list) {
+      const p = project(d.x,d.y,d.z,rot);
+      const px = cx + p.x * SPACING;
+      const py = cy + p.y * SPACING;
+
+      if (mix.glow > 0) {
+        const glowRadius = DOT_RADIUS * GLOW_RADIUS_MULTIPLIER;
+        const bloomRadius = DOT_RADIUS * BLOOM_RADIUS_MULTIPLIER;
+        const bloomGradient = ctx.createRadialGradient(px, py, DOT_RADIUS * 0.2, px, py, bloomRadius);
+        bloomGradient.addColorStop(0, hexToRGBA(d.color, 0.045 * mix.glow));
+        bloomGradient.addColorStop(0.45, hexToRGBA(d.color, 0.018 * mix.glow));
+        bloomGradient.addColorStop(1, hexToRGBA(d.color, 0));
+        const glowGradient = ctx.createRadialGradient(px, py, DOT_RADIUS * 0.25, px, py, glowRadius);
+        glowGradient.addColorStop(0, hexToRGBA(d.color, 0.11 * mix.glow));
+        glowGradient.addColorStop(0.65, hexToRGBA(d.color, 0.035 * mix.glow));
+        glowGradient.addColorStop(1, hexToRGBA(d.color, 0));
+
+        ctx.save();
+        ctx.globalCompositeOperation = 'screen';
+        ctx.globalAlpha = 0.9;
+        ctx.beginPath();
+        ctx.arc(px, py, bloomRadius, 0, Math.PI*2);
+        ctx.fillStyle = bloomGradient;
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(px, py, glowRadius, 0, Math.PI*2);
+        ctx.fillStyle = glowGradient;
+        ctx.fill();
+        ctx.restore();
+      }
+
+      const phong = calculatePhongLighting(
+        d.x, d.y, d.z,
+        lightPos.x, lightPos.y, lightPos.z,
+        sphereCenter, sphereCenter, sphereCenter
+      );
+      const phongColor = applyPhongLighting(d.color, phong.diffuse, phong.specular);
+      let finalColor = blendRgb(hexToRgb(d.color), phongColor, mix.phong);
+
+      if (mix.refraction > 0) {
+        const glass = calculateGlassLighting(
+          d.x, d.y, d.z,
+          lightPos.x, lightPos.y, lightPos.z,
+          sphereCenter, sphereCenter, sphereCenter
+        );
+        finalColor = blendRgb(finalColor, glass.color, mix.refraction * glass.alpha);
+      }
+
+      if (mix.reflection > 0) {
+        const reflection = calculateReflectionLighting(
+          d.x, d.y, d.z,
+          lightPos.x, lightPos.y, lightPos.z,
+          sphereCenter, sphereCenter, sphereCenter,
+          reflectionStrength
+        );
+        const reflectionColor = applyReflectionLighting(d.color, reflection);
+        finalColor = blendRgb(finalColor, reflectionColor, mix.reflection);
+      }
+
+      ctx.beginPath();
+      ctx.arc(px, py, DOT_RADIUS, 0, Math.PI*2);
+      ctx.fillStyle = rgbToCss(finalColor);
+      ctx.globalAlpha = 1;
+      ctx.fill();
+
+      if (mix.glow > 0) {
+        ctx.beginPath();
+        ctx.arc(px, py, DOT_RADIUS, 0, Math.PI*2);
+        ctx.fillStyle = hexToRGBA(d.color, DOT_ALPHA * mix.glow * 0.6);
+        ctx.fill();
+      }
+    }
+  }, [dots, rot, lightPos, mix, reflectionStrength]);
+
+  const cells = useMemo(() => {
+    const arr = [];
+    for (let y=0; y<GRID; y++) {
+      for (let x=0; x<GRID; x++) {
+        const cellColor = dots.get(key(x,y,layer));
+        arr.push({x,y,filled: !!cellColor,c: cellColor});
+      }
+    }
+    return arr;
+  }, [dots, layer]);
+
+  return (
+    <>
+      <div className="top-bar">
+        <button className={"btn "+(mode==='draw'?'active':'')} onClick={()=>setMode('draw')}>Draw</button>
+        <button className={"btn "+(mode==='erase'?'active':'')} onClick={()=>setMode('erase')}>Erase</button>
+        <button className="btn" onClick={()=>setDots(createSphere(18, color))}>Reset Sphere</button>
+        <div className="palette">
+          {COLORS.map(c=>(
+            <div key={c} className={"swatch "+(color===c?'selected':'')} style={{background:c}} onClick={()=>setColor(c)} />
+          ))}
+        </div>
+      </div>
+
+      <div className="preview-box">
+        <h3 style={{marginBottom:10}}>Sphere • Dream Shader (Glow + Phong + Refraction + Reflection Layers)</h3>
+        <canvas ref={canvasRef} width="600" height="600"></canvas>
+        <div className="controls">
+          <div className="control-item">
+            <span>Rotate: {rot}°</span>
+            <input type="range" min="0" max="360" value={rot} onChange={e=>setRot(+e.target.value)} />
+          </div>
+          <div className="control-item">
+            <span>View Layer: {layer+1}/{LAYERS}</span>
+            <input type="range" min="0" max={LAYERS-1} value={layer} onChange={e=>setLayer(+e.target.value)} />
+          </div>
+          <div className="control-item">
+            <span>Light X: {lightPos.x}</span>
+            <input type="range" min="0" max={GRID} value={lightPos.x} onChange={e=>setLightPos(p=>({...p, x:+e.target.value}))} />
+          </div>
+          <div className="control-item">
+            <span>Light Y: {lightPos.y}</span>
+            <input type="range" min="0" max={GRID} value={lightPos.y} onChange={e=>setLightPos(p=>({...p, y:+e.target.value}))} />
+          </div>
+          <div className="control-item">
+            <span>Light Z: {lightPos.z}</span>
+            <input type="range" min="0" max={LAYERS-1} value={lightPos.z} onChange={e=>setLightPos(p=>({...p, z:+e.target.value}))} />
+          </div>
+          <div className="control-item">
+            <span>Glow Layer: {mix.glow.toFixed(2)}</span>
+            <input type="range" min="0" max="1" step="0.01" value={mix.glow} onChange={e=>setMix(m=>({...m, glow:+e.target.value}))} />
+          </div>
+          <div className="control-item">
+            <span>Phong Layer: {mix.phong.toFixed(2)}</span>
+            <input type="range" min="0" max="1" step="0.01" value={mix.phong} onChange={e=>setMix(m=>({...m, phong:+e.target.value}))} />
+          </div>
+          <div className="control-item">
+            <span>Refraction Layer: {mix.refraction.toFixed(2)}</span>
+            <input type="range" min="0" max="1" step="0.01" value={mix.refraction} onChange={e=>setMix(m=>({...m, refraction:+e.target.value}))} />
+          </div>
+          <div className="control-item">
+            <span>Reflection Layer: {mix.reflection.toFixed(2)}</span>
+            <input type="range" min="0" max="1" step="0.01" value={mix.reflection} onChange={e=>setMix(m=>({...m, reflection:+e.target.value}))} />
+          </div>
+          <div className="control-item">
+            <span>Reflection Energy: {reflectionStrength.toFixed(2)}</span>
+            <input type="range" min="0" max="1" step="0.01" value={reflectionStrength} onChange={e=>setReflectionStrength(+e.target.value)} />
+          </div>
+        </div>
+      </div>
+
+      <div className="grid-box">
+        <h3 style={{marginBottom:10}}>64×64 Grid Editor</h3>
+        <div className="grid">
+          {cells.map(cell=>(
+            <button
+              key={cell.x+'-'+cell.y}
+              className={"cell "+(cell.filled?'filled':'')}
+              style={cell.filled ? {'--c': cell.c} : {}}
+              onClick={()=>clickCell(cell.x,cell.y)}
+            />
+          ))}
+        </div>
+      </div>
+    </>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
