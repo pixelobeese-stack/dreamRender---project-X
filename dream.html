@@ -222,7 +222,7 @@ const getEnvironmentColor = (normal, viewDir) => {
     b: Math.round((lowBlend.b * (1 - t) + upBlend.b * t) * viewLift)
   };
 };
-const calculateReflectionLighting = (dotX, dotY, dotZ, lightX, lightY, lightZ, centerX, centerY, centerZ, reflectionStrength) => {
+const calculateReflectionLighting = (dotX, dotY, dotZ, lightX, lightY, lightZ, centerX, centerY, centerZ, reflectionStrength, specularRoughness) => {
   const toLight = { x: lightX - dotX, y: lightY - dotY, z: lightZ - dotZ };
   const distance = Math.hypot(toLight.x, toLight.y, toLight.z);
   const lightDir = normalize(toLight);
@@ -248,7 +248,10 @@ const calculateReflectionLighting = (dotX, dotY, dotZ, lightX, lightY, lightZ, c
   const ndotv = Math.max(0, dot(normal, viewDir));
   const fresnel = Math.pow(1 - ndotv, 5);
   const reflection = clamp((0.08 + fresnel * 0.92) * reflectionStrength, 0, 1);
-  const specular = Math.pow(ndoth, REFLECTION_SPECULAR_POWER) * REFLECTION_SPECULAR_AMOUNT * ndotl * (0.2 + reflection * 0.35);
+  const roughness = clamp(specularRoughness, 0, 1);
+  const specularPower = 8 + (1 - roughness) * (REFLECTION_SPECULAR_POWER - 8);
+  const roughnessFade = 1 - roughness * 0.75;
+  const specular = Math.pow(ndoth, specularPower) * REFLECTION_SPECULAR_AMOUNT * roughnessFade * ndotl * (0.2 + reflection * 0.35);
   const env = getEnvironmentColor(normal, viewDir);
   return { diffuse: diffuse * ndotl + 0.16, specular, reflection, env };
 };
@@ -292,6 +295,7 @@ function App() {
   const [mix, setMix] = useState({ glow: 0.85, refraction: 0.55, reflection: 0.45 });
   const [reflectionStrength, setReflectionStrength] = useState(0.85);
   const [specularEffect, setSpecularEffect] = useState(0.9);
+  const [specularRoughness, setSpecularRoughness] = useState(0.35);
   const canvasRef = useRef(null);
   const sphereCenter = GRID / 2;
 
@@ -342,7 +346,8 @@ function App() {
           d.x, d.y, d.z,
           lightPos.x, lightPos.y, lightPos.z,
           sphereCenter, sphereCenter, sphereCenter,
-          reflectionStrength
+          reflectionStrength,
+          specularRoughness
         );
         const reflectionColor = applyReflectionLighting(d.color, reflection, specularEffect);
         finalColor = blendRgb(finalColor, reflectionColor, mix.reflection);
@@ -361,7 +366,7 @@ function App() {
         ctx.fill();
       }
     }
-  }, [dots, rot, lightPos, mix, reflectionStrength, specularEffect]);
+  }, [dots, rot, lightPos, mix, reflectionStrength, specularEffect, specularRoughness]);
 
   const cells = useMemo(() => {
     const arr = [];
@@ -418,6 +423,10 @@ function App() {
           <div className="control-item">
             <span>Specular Effect: {specularEffect.toFixed(2)}</span>
             <input type="range" min="0" max="1" step="0.01" value={specularEffect} onChange={e=>setSpecularEffect(+e.target.value)} />
+          </div>
+          <div className="control-item">
+            <span>Specular Roughness: {specularRoughness.toFixed(2)}</span>
+            <input type="range" min="0" max="1" step="0.01" value={specularRoughness} onChange={e=>setSpecularRoughness(+e.target.value)} />
           </div>
           <div className="control-item">
             <span>Refraction Layer: {mix.refraction.toFixed(2)}</span>
