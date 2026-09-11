@@ -109,9 +109,6 @@ const SPACING = 3.5;
 const COLORS = ['#e63946','#f4a261','#e9c46a','#2a9d8f','#8ecae6','#ffb703','#ffffff','#111'];
 const MAX_LIGHT_DISTANCE = 45;
 
-const PHONG_SPECULAR_POWER = 32;
-const PHONG_SPECULAR_AMOUNT = 0.6;
-
 const GLOW_RADIUS_MULTIPLIER = 3.6;
 const BLOOM_RADIUS_MULTIPLIER = 5.8;
 const DOT_ALPHA = 0.55;
@@ -171,32 +168,6 @@ const blendRgb = (base, overlay, amount) => ({
   g: base.g * (1 - amount) + overlay.g * amount,
   b: base.b * (1 - amount) + overlay.b * amount
 });
-
-const applyPhongLighting = (hex, diffuse, specular) => {
-  const base = hexToRgb(hex);
-  return {
-    r: Math.min(255, Math.round(base.r * diffuse + 255 * specular)),
-    g: Math.min(255, Math.round(base.g * diffuse + 255 * specular)),
-    b: Math.min(255, Math.round(base.b * diffuse + 255 * specular))
-  };
-};
-const calculatePhongLighting = (dotX, dotY, dotZ, lightX, lightY, lightZ, centerX, centerY, centerZ) => {
-  const dx = dotX - lightX;
-  const dy = dotY - lightY;
-  const dz = dotZ - lightZ;
-  const distance = Math.sqrt(dx*dx + dy*dy + dz*dz);
-  const diffuse = Math.max(0.15, 1 - (distance / MAX_LIGHT_DISTANCE));
-
-  const normal = normalize({
-    x: dotX - centerX,
-    y: dotY - centerY,
-    z: dotZ - centerZ
-  });
-  const lightDir = normalize({ x: -dx, y: -dy, z: -dz });
-  const dotNL = Math.max(0, dot(normal, lightDir));
-  const specular = Math.pow(dotNL, PHONG_SPECULAR_POWER) * PHONG_SPECULAR_AMOUNT;
-  return { diffuse, specular };
-};
 
 const calculateGlassLighting = (dotX, dotY, dotZ, lightX, lightY, lightZ, centerX, centerY, centerZ) => {
   const dx = dotX - lightX;
@@ -282,11 +253,11 @@ const calculateReflectionLighting = (dotX, dotY, dotZ, lightX, lightY, lightZ, c
   const env = getEnvironmentColor(normal, viewDir);
   return { diffuse: diffuse * ndotl + 0.16, specular, reflection, env };
 };
-const applyReflectionLighting = (hex, lighting) => {
+const applyReflectionLighting = (hex, lighting, specularEffect) => {
   const base = hexToRgb(hex);
   const direct = lighting.diffuse * METAL_DIFFUSE;
   const refl = lighting.reflection;
-  const spec = lighting.specular;
+  const spec = lighting.specular * specularEffect;
   return {
     r: clamp(Math.round(base.r * direct + lighting.env.r * refl * GOLD_F0.r + 255 * spec * GOLD_F0.r), 0, 255),
     g: clamp(Math.round(base.g * direct + lighting.env.g * refl * GOLD_F0.g + 246 * spec * GOLD_F0.g), 0, 255),
@@ -319,8 +290,9 @@ function App() {
   const [layer, setLayer] = useState(32);
   const [mode, setMode] = useState('draw');
   const [lightPos, setLightPos] = useState({x:10, y:10, z:10});
-  const [mix, setMix] = useState({ glow: 0.85, phong: 0.9, refraction: 0.55, reflection: 0.45 });
+  const [mix, setMix] = useState({ glow: 0.85, refraction: 0.55, reflection: 0.45 });
   const [reflectionStrength, setReflectionStrength] = useState(0.85);
+  const [specularEffect, setSpecularEffect] = useState(0.9);
   const canvasRef = useRef(null);
   const sphereCenter = GRID / 2;
 
@@ -381,13 +353,7 @@ function App() {
         ctx.restore();
       }
 
-      const phong = calculatePhongLighting(
-        d.x, d.y, d.z,
-        lightPos.x, lightPos.y, lightPos.z,
-        sphereCenter, sphereCenter, sphereCenter
-      );
-      const phongColor = applyPhongLighting(d.color, phong.diffuse, phong.specular);
-      let finalColor = blendRgb(hexToRgb(d.color), phongColor, mix.phong);
+      let finalColor = hexToRgb(d.color);
 
       if (mix.refraction > 0) {
         const glass = calculateGlassLighting(
@@ -405,7 +371,7 @@ function App() {
           sphereCenter, sphereCenter, sphereCenter,
           reflectionStrength
         );
-        const reflectionColor = applyReflectionLighting(d.color, reflection);
+        const reflectionColor = applyReflectionLighting(d.color, reflection, specularEffect);
         finalColor = blendRgb(finalColor, reflectionColor, mix.reflection);
       }
 
@@ -422,7 +388,7 @@ function App() {
         ctx.fill();
       }
     }
-  }, [dots, rot, lightPos, mix, reflectionStrength]);
+  }, [dots, rot, lightPos, mix, reflectionStrength, specularEffect]);
 
   const cells = useMemo(() => {
     const arr = [];
@@ -449,7 +415,7 @@ function App() {
       </div>
 
       <div className="preview-box">
-        <h3 style={{marginBottom:10}}>Sphere • Dream Shader (Glow + Phong + Refraction + Reflection Layers)</h3>
+        <h3 style={{marginBottom:10}}>Sphere • Dream Shader (Glow + Refraction + Reflection Layers)</h3>
         <canvas ref={canvasRef} width="600" height="600"></canvas>
         <div className="controls">
           <div className="control-item">
@@ -477,8 +443,8 @@ function App() {
             <input type="range" min="0" max="1" step="0.01" value={mix.glow} onChange={e=>setMix(m=>({...m, glow:+e.target.value}))} />
           </div>
           <div className="control-item">
-            <span>Phong Layer: {mix.phong.toFixed(2)}</span>
-            <input type="range" min="0" max="1" step="0.01" value={mix.phong} onChange={e=>setMix(m=>({...m, phong:+e.target.value}))} />
+            <span>Specular Effect: {specularEffect.toFixed(2)}</span>
+            <input type="range" min="0" max="1" step="0.01" value={specularEffect} onChange={e=>setSpecularEffect(+e.target.value)} />
           </div>
           <div className="control-item">
             <span>Refraction Layer: {mix.refraction.toFixed(2)}</span>
