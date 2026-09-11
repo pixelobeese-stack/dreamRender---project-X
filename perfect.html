@@ -117,6 +117,8 @@ const SPECULAR_POWER = 32;
 const SPECULAR_AMOUNT = 0.95;
 const SPECULAR_BLEND_BOOST = 1.35;
 const SPECULAR_HIGHLIGHT_BOOST = 1.8;
+const MEDIAN_BLUR_RADIUS = 1;
+const MEDIAN_BLUR_PASSES = 5;
 const GLOW_RADIUS_MULTIPLIER = 3.6;
 const BLOOM_RADIUS_MULTIPLIER = 5.8;
 const DOT_ALPHA = 0.55;
@@ -160,6 +162,42 @@ const hexToRGBA = (hex, alpha) => {
   return `rgba(${r},${g},${b},${clamp(alpha, 0, 1)})`;
 };
 const toGrayscale = (r, g, b) => Math.round(r * 0.299 + g * 0.587 + b * 0.114);
+const medianOfValues = (values) => {
+  const sorted = values.slice().sort((a, b) => a - b);
+  return sorted[(sorted.length / 2) | 0];
+};
+const applyMedianBlur = (ctx, width, height, radius = MEDIAN_BLUR_RADIUS, passes = MEDIAN_BLUR_PASSES) => {
+  if (radius <= 0 || passes <= 0) return;
+  let source = ctx.getImageData(0, 0, width, height);
+  for (let pass = 0; pass < passes; pass++) {
+    const target = ctx.createImageData(width, height);
+    const src = source.data;
+    const dst = target.data;
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const rs = [], gs = [], bs = [], as = [];
+        for (let oy = -radius; oy <= radius; oy++) {
+          const sy = clamp(y + oy, 0, height - 1);
+          for (let ox = -radius; ox <= radius; ox++) {
+            const sx = clamp(x + ox, 0, width - 1);
+            const idx = (sy * width + sx) * 4;
+            rs.push(src[idx]);
+            gs.push(src[idx + 1]);
+            bs.push(src[idx + 2]);
+            as.push(src[idx + 3]);
+          }
+        }
+        const out = (y * width + x) * 4;
+        dst[out] = medianOfValues(rs);
+        dst[out + 1] = medianOfValues(gs);
+        dst[out + 2] = medianOfValues(bs);
+        dst[out + 3] = medianOfValues(as);
+      }
+    }
+    source = target;
+  }
+  ctx.putImageData(source, 0, 0);
+};
 const applyPhongLighting = (hex, diffuse, specular) => {
   const h = hex.replace('#','');
   const baseR = Math.round(parseInt(h.substr(0,2),16) * diffuse);
@@ -280,6 +318,7 @@ function App() {
       list.push({x,y,z,color:v.color,effect:v.effect});
     }
     list.sort((a,b) => a.x+a.y+a.z - (b.x+b.y+b.z));
+    const hasPhongDots = list.some(d => d.effect === 'phong');
 
     for (const d of list) {
       const p = project(d.x,d.y,d.z,rot);
@@ -341,6 +380,8 @@ function App() {
       ctx.fillStyle = applyPhongLighting(d.color, diffuse, specular);
       ctx.fill();
     }
+
+    if (hasPhongDots) applyMedianBlur(ctx, size, size);
   }, [dots, rot, lightPos]);
 
   const cells = useMemo(() => {
