@@ -118,7 +118,7 @@ const MAX_LIGHT_DISTANCE = 45;
 const SPECULAR_POWER = 32;   // Shine sharpness
 const SPECULAR_AMOUNT = 0.9; // Brightness of highlights
 const BRIGHTNESS_BOOST = 1.25;
-const GLOW_RADIUS_MULTIPLIER = 2.2;
+const GLOW_RADIUS_MULTIPLIER = 3.6;
 const GLOW_BLUR = 10;
 
 const key = (x,y,z) => `${x},${y},${z}`;
@@ -134,12 +134,12 @@ const project = (x,y,z,rot) => {
 
 // === Lighting + Specular ===
 const calculateLighting = (dotX, dotY, dotZ, lightX, lightY, lightZ, centerX, centerY, centerZ) => {
-  // Distance-based diffuse lighting
+  // Keep base lighting bright (no dark shading falloff)
   const dx = dotX - lightX;
   const dy = dotY - lightY;
   const dz = dotZ - lightZ;
   const distance = Math.sqrt(dx*dx + dy*dy + dz*dz);
-  const diffuse = Math.max(0.25, 1 - (distance / MAX_LIGHT_DISTANCE));
+  const diffuse = 1;
 
   // Surface normal (from sphere center)
   const nx = dotX - centerX;
