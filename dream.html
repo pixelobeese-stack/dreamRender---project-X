@@ -116,10 +116,11 @@ const FRESNEL_POWER = 3.2;
 const REFRACTION_AMOUNT = 0.65;
 const TRANSMISSION = 0.72;
 
-const REFLECTION_SPECULAR_POWER = 48;
-const REFLECTION_SPECULAR_AMOUNT = 0.9;
+const REFLECTION_SPECULAR_POWER = 80;
+const REFLECTION_SPECULAR_AMOUNT = 0.45;
 const METAL_DIFFUSE = 0.78;
 const GOLD_F0 = { r: 1.0, g: 0.86, b: 0.57 };
+const LIGHT_COLOR = { r: 255, g: 255, b: 255 };
 
 const key = (x,y,z) => `${x},${y},${z}`;
 const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
@@ -247,7 +248,7 @@ const calculateReflectionLighting = (dotX, dotY, dotZ, lightX, lightY, lightZ, c
   const ndotv = Math.max(0, dot(normal, viewDir));
   const fresnel = Math.pow(1 - ndotv, 5);
   const reflection = clamp((0.08 + fresnel * 0.92) * reflectionStrength, 0, 1);
-  const specular = Math.pow(ndoth, REFLECTION_SPECULAR_POWER) * REFLECTION_SPECULAR_AMOUNT * (0.35 + reflection * 0.65);
+  const specular = Math.pow(ndoth, REFLECTION_SPECULAR_POWER) * REFLECTION_SPECULAR_AMOUNT * ndotl * (0.2 + reflection * 0.35);
   const env = getEnvironmentColor(normal, viewDir);
   return { diffuse: diffuse * ndotl + 0.16, specular, reflection, env };
 };
@@ -257,9 +258,9 @@ const applyReflectionLighting = (hex, lighting, specularEffect) => {
   const refl = lighting.reflection;
   const spec = lighting.specular * specularEffect;
   return {
-    r: clamp(Math.round(base.r * direct + lighting.env.r * refl * GOLD_F0.r + 255 * spec * GOLD_F0.r), 0, 255),
-    g: clamp(Math.round(base.g * direct + lighting.env.g * refl * GOLD_F0.g + 246 * spec * GOLD_F0.g), 0, 255),
-    b: clamp(Math.round(base.b * direct + lighting.env.b * refl * GOLD_F0.b + 208 * spec * GOLD_F0.b), 0, 255)
+    r: clamp(Math.round(base.r * direct + lighting.env.r * refl * GOLD_F0.r + LIGHT_COLOR.r * spec), 0, 255),
+    g: clamp(Math.round(base.g * direct + lighting.env.g * refl * GOLD_F0.g + LIGHT_COLOR.g * spec), 0, 255),
+    b: clamp(Math.round(base.b * direct + lighting.env.b * refl * GOLD_F0.b + LIGHT_COLOR.b * spec), 0, 255)
   };
 };
 
