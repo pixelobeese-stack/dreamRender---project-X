@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Gold + Silvery Metal Shader</title>
+<script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body {
+  font-family: sans-serif;
+  background: radial-gradient(circle at 20% 10%, #2a2f3a, #12151c 55%, #0b0e14);
+  color: #f2f4f8;
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+.card {
+  width: min(860px, 100%);
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 16px;
+  padding: 18px;
+  backdrop-filter: blur(10px);
+}
+h1 { font-size: 20px; margin-bottom: 4px; }
+p { color: #cfd7e8; margin-bottom: 14px; }
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+button {
+  border: 1px solid rgba(255,255,255,0.22);
+  background: rgba(255,255,255,0.08);
+  color: #fff;
+  padding: 8px 12px;
+  border-radius: 10px;
+  cursor: pointer;
+}
+button.active {
+  background: #fff;
+  color: #111;
+}
+label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.14);
+  border-radius: 10px;
+  padding: 8px 10px;
+}
+input[type="range"] { width: 160px; }
+canvas {
+  display: block;
+  width: 100%;
+  max-width: 820px;
+  border-radius: 12px;
+  background: radial-gradient(circle at 30% 20%, #1f2736, #0e121a 62%, #090b10);
+}
+.meta {
+  margin-top: 10px;
+  color: #d6dded;
+  font-size: 14px;
+}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useEffect, useMemo, useRef, useState } = React;
+
+const MATERIALS = {
+  gold: {
+    label: 'Gold Mirror',
+    base: [212, 170, 66],
+    specular: [255, 246, 225],
+    ambient: 0.09,
+    diffuse: 0.95,
+    specAmount: 1.35,
+    specPower: 64,
+    rimAmount: 0.25,
+    bgSpec: [247, 244, 238]
+  },
+  silvery: {
+    label: 'Silvery Metal',
+    base: [160, 172, 186],
+    specular: [255, 255, 255],
+    ambient: 0.1,
+    diffuse: 0.86,
+    specAmount: 1.55,
+    specPower: 92,
+    rimAmount: 0.28,
+    bgSpec: [248, 252, 255]
+  }
+};
+
+const clamp = (v) => Math.max(0, Math.min(255, Math.round(v)));
+
+const App = () => {
+  const canvasRef = useRef(null);
+  const [materialKey, setMaterialKey] = useState('gold');
+  const [shineBoost, setShineBoost] = useState(1);
+  const [lightX, setLightX] = useState(-0.5);
+  const [lightY, setLightY] = useState(-0.8);
+
+  const material = useMemo(() => MATERIALS[materialKey], [materialKey]);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const w = 820;
+    const h = 520;
+    canvas.width = w;
+    canvas.height = h;
+
+    const cx = w * 0.5;
+    const cy = h * 0.55;
+    const radius = 165;
+
+    ctx.clearRect(0, 0, w, h);
+
+    const ground = ctx.createLinearGradient(0, h * 0.68, 0, h);
+    ground.addColorStop(0, 'rgba(255,255,255,0.08)');
+    ground.addColorStop(1, 'rgba(255,255,255,0.01)');
+    ctx.fillStyle = ground;
+    ctx.fillRect(0, h * 0.68, w, h * 0.32);
+
+    const light = { x: lightX, y: lightY, z: 1.3 };
+    const llen = Math.hypot(light.x, light.y, light.z) || 1;
+    light.x /= llen;
+    light.y /= llen;
+    light.z /= llen;
+
+    const view = { x: 0, y: 0, z: 1 };
+
+    const img = ctx.createImageData(w, h);
+    const data = img.data;
+
+    for (let py = Math.floor(cy - radius); py <= Math.ceil(cy + radius); py++) {
+      for (let px = Math.floor(cx - radius); px <= Math.ceil(cx + radius); px++) {
+        const dx = (px - cx) / radius;
+        const dy = (py - cy) / radius;
+        const rr = dx * dx + dy * dy;
+        if (rr > 1) continue;
+
+        const nz = Math.sqrt(1 - rr);
+        const n = { x: dx, y: dy, z: nz };
+
+        const diffuse = Math.max(0, n.x * light.x + n.y * light.y + n.z * light.z);
+        const rx = 2 * diffuse * n.x - light.x;
+        const ry = 2 * diffuse * n.y - light.y;
+        const rz = 2 * diffuse * n.z - light.z;
+        const rDotV = Math.max(0, rx * view.x + ry * view.y + rz * view.z);
+
+        const specPower = material.specPower * (0.75 + shineBoost * 0.55);
+        const specular = Math.pow(rDotV, specPower) * material.specAmount * shineBoost;
+
+        const fresnel = Math.pow(1 - Math.max(0, n.z), 2.4) * material.rimAmount;
+
+        const envTint = (n.y * -0.5 + 0.5) * 0.18;
+
+        const r = material.base[0] * (material.ambient + material.diffuse * diffuse)
+          + material.specular[0] * specular
+          + material.bgSpec[0] * (fresnel + envTint);
+        const g = material.base[1] * (material.ambient + material.diffuse * diffuse)
+          + material.specular[1] * specular
+          + material.bgSpec[1] * (fresnel + envTint);
+        const b = material.base[2] * (material.ambient + material.diffuse * diffuse)
+          + material.specular[2] * specular
+          + material.bgSpec[2] * (fresnel + envTint);
+
+        const i = (py * w + px) * 4;
+        data[i] = clamp(r);
+        data[i + 1] = clamp(g);
+        data[i + 2] = clamp(b);
+        data[i + 3] = 255;
+      }
+    }
+
+    ctx.putImageData(img, 0, 0);
+
+    const highlight = ctx.createRadialGradient(cx - radius * 0.35, cy - radius * 0.45, radius * 0.04, cx - radius * 0.35, cy - radius * 0.45, radius * 0.6);
+    highlight.addColorStop(0, 'rgba(255,255,255,0.34)');
+    highlight.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.save();
+    ctx.globalCompositeOperation = 'screen';
+    ctx.beginPath();
+    ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+    ctx.clip();
+    ctx.fillStyle = highlight;
+    ctx.fillRect(cx - radius, cy - radius, radius * 2, radius * 2);
+    ctx.restore();
+    ctx.globalCompositeOperation = 'source-over';
+
+    ctx.fillStyle = 'rgba(255,255,255,0.72)';
+    ctx.font = '600 17px sans-serif';
+    ctx.fillText(material.label, 24, 34);
+  }, [material, shineBoost, lightX, lightY]);
+
+  return (
+    <div className="card">
+      <h1>Gold + Silvery Metallic Shader</h1>
+      <p>Recommended look: start with Gold Mirror, then switch to Silvery Metal for a bright cool shine.</p>
+      <div className="toolbar">
+        {Object.keys(MATERIALS).map((key) => (
+          <button key={key} className={key === materialKey ? 'active' : ''} onClick={() => setMaterialKey(key)}>
+            {MATERIALS[key].label}
+          </button>
+        ))}
+        <label>
+          Shine {shineBoost.toFixed(2)}
+          <input type="range" min="0.4" max="1.7" step="0.01" value={shineBoost} onChange={(e) => setShineBoost(+e.target.value)} />
+        </label>
+        <label>
+          Light X {lightX.toFixed(2)}
+          <input type="range" min="-1.2" max="1.2" step="0.01" value={lightX} onChange={(e) => setLightX(+e.target.value)} />
+        </label>
+        <label>
+          Light Y {lightY.toFixed(2)}
+          <input type="range" min="-1.2" max="1.2" step="0.01" value={lightY} onChange={(e) => setLightY(+e.target.value)} />
+        </label>
+      </div>
+      <canvas ref={canvasRef} width="820" height="520" />
+      <div className="meta">Tip: For a silvery-gold mix, use Gold Mirror with Shine around 1.35 and move light to X -0.25, Y -0.95.</div>
+    </div>
+  );
+};
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
