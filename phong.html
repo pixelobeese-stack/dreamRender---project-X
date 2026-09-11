@@ -114,9 +114,9 @@ const LAYERS = 64;
 const DOT_RADIUS = 2.5;
 const SPACING = 3.5;
 const COLORS = ['#e63946','#f4a261','#e9c46a','#2a9d8f','#8ecae6','#ffb703','#ffffff','#111'];
-const GLOW_RADIUS_MULTIPLIER = 3.9;
-const BLOOM_RADIUS_MULTIPLIER = 6.6;
-const DOT_ALPHA = 0.72;
+const GLOW_RADIUS_MULTIPLIER = 3.6;
+const BLOOM_RADIUS_MULTIPLIER = 5.8;
+const DOT_ALPHA = 0.55;
 
 const key = (x,y,z) => `${x},${y},${z}`;
 const project = (x,y,z,rot) => {
@@ -201,16 +201,17 @@ function App() {
       const glowRadius = DOT_RADIUS * GLOW_RADIUS_MULTIPLIER;
       const bloomRadius = DOT_RADIUS * BLOOM_RADIUS_MULTIPLIER;
       const bloomGradient = ctx.createRadialGradient(px, py, DOT_RADIUS * 0.2, px, py, bloomRadius);
-      bloomGradient.addColorStop(0, hexToRGBA(d.baseColor, 0.09));
-      bloomGradient.addColorStop(0.45, hexToRGBA(d.baseColor, 0.04));
+      bloomGradient.addColorStop(0, hexToRGBA(d.baseColor, 0.045));
+      bloomGradient.addColorStop(0.45, hexToRGBA(d.baseColor, 0.018));
       bloomGradient.addColorStop(1, hexToRGBA(d.baseColor, 0));
       const glowGradient = ctx.createRadialGradient(px, py, DOT_RADIUS * 0.25, px, py, glowRadius);
-      glowGradient.addColorStop(0, hexToRGBA(d.baseColor, 0.18));
-      glowGradient.addColorStop(0.65, hexToRGBA(d.baseColor, 0.06));
+      glowGradient.addColorStop(0, hexToRGBA(d.baseColor, 0.11));
+      glowGradient.addColorStop(0.65, hexToRGBA(d.baseColor, 0.035));
       glowGradient.addColorStop(1, hexToRGBA(d.baseColor, 0));
 
       ctx.save();
-      ctx.globalCompositeOperation = 'lighter';
+      ctx.globalCompositeOperation = 'screen';
+      ctx.globalAlpha = 0.88;
       ctx.beginPath();
       ctx.arc(px, py, bloomRadius, 0, Math.PI*2);
       ctx.fillStyle = bloomGradient;
