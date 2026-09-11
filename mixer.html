@@ -107,11 +107,7 @@ const LAYERS = 64;
 const DOT_RADIUS = 2.5;
 const SPACING = 3.5;
 const COLORS = ['#e63946','#f4a261','#e9c46a','#2a9d8f','#8ecae6','#ffb703','#ffffff','#111'];
-const EFFECTS = [
-  { id: 'glow', label: 'Glow' },
-  { id: 'phong', label: 'Phong' },
-  { id: 'refraction', label: 'Refraction' }
-];
+const DEFAULT_MIX = { glow: 0, phong: 1, refraction: 0 };
 const MAX_LIGHT_DISTANCE = 45;
 const SPECULAR_POWER = 32;
 const SPECULAR_AMOUNT = 0.6;
@@ -177,6 +173,27 @@ const applyGlassLighting = (hex, diffuse, fresnel, refractiveLight) => {
   const alpha = clamp(0.38 + diffuse * 0.24 + fresnel * 0.3 + refractiveLight * 0.18, 0.35, 0.95);
   return `rgba(${r},${g},${b},${alpha})`;
 };
+const normalizeMix = (mix) => {
+  const normalized = {
+    glow: clamp(Number(mix?.glow ?? 0), 0, 1),
+    phong: clamp(Number(mix?.phong ?? 0), 0, 1),
+    refraction: clamp(Number(mix?.refraction ?? 0), 0, 1)
+  };
+  if (normalized.glow === 0 && normalized.phong === 0 && normalized.refraction === 0) {
+    return { ...DEFAULT_MIX };
+  }
+  return normalized;
+};
+const effectToMix = (effect) => {
+  if (effect === 'glow') return { glow: 1, phong: 0, refraction: 0 };
+  if (effect === 'refraction') return { glow: 0, phong: 0, refraction: 1 };
+  return { glow: 0, phong: 1, refraction: 0 };
+};
+const getVoxelMix = (voxel) => {
+  if (voxel?.mix) return normalizeMix(voxel.mix);
+  if (voxel?.effect) return effectToMix(voxel.effect);
+  return { ...DEFAULT_MIX };
+};
 const calculatePhongLighting = (dotX, dotY, dotZ, lightX, lightY, lightZ, centerX, centerY, centerZ) => {
   const dx = dotX - lightX;
   const dy = dotY - lightY;
@@ -217,9 +234,41 @@ const calculateGlassLighting = (dotX, dotY, dotZ, lightX, lightY, lightZ, center
   const refractiveLight = Math.pow(Math.max(0, dot(refracted, lightDir)), 2.2) * REFRACTION_AMOUNT;
   return { diffuse, fresnel, refractiveLight };
 };
-const createSphere = (radius = 18, color = '#8ecae6', effect = 'phong') => {
+const drawGlowEffect = (ctx, px, py, color, opacity) => {
+  if (opacity <= 0) return;
+  const glowRadius = DOT_RADIUS * GLOW_RADIUS_MULTIPLIER;
+  const bloomRadius = DOT_RADIUS * BLOOM_RADIUS_MULTIPLIER;
+  const bloomGradient = ctx.createRadialGradient(px, py, DOT_RADIUS * 0.2, px, py, bloomRadius);
+  bloomGradient.addColorStop(0, hexToRGBA(color, 0.045));
+  bloomGradient.addColorStop(0.45, hexToRGBA(color, 0.018));
+  bloomGradient.addColorStop(1, hexToRGBA(color, 0));
+  const glowGradient = ctx.createRadialGradient(px, py, DOT_RADIUS * 0.25, px, py, glowRadius);
+  glowGradient.addColorStop(0, hexToRGBA(color, 0.11));
+  glowGradient.addColorStop(0.65, hexToRGBA(color, 0.035));
+  glowGradient.addColorStop(1, hexToRGBA(color, 0));
+
+  ctx.save();
+  ctx.globalCompositeOperation = 'screen';
+  ctx.globalAlpha = 0.88 * opacity;
+  ctx.beginPath();
+  ctx.arc(px, py, bloomRadius, 0, Math.PI*2);
+  ctx.fillStyle = bloomGradient;
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(px, py, glowRadius, 0, Math.PI*2);
+  ctx.fillStyle = glowGradient;
+  ctx.fill();
+  ctx.restore();
+
+  ctx.beginPath();
+  ctx.arc(px, py, DOT_RADIUS, 0, Math.PI*2);
+  ctx.fillStyle = hexToRGBA(color, DOT_ALPHA * opacity);
+  ctx.fill();
+};
+const createSphere = (radius = 18, color = '#8ecae6', mix = DEFAULT_MIX) => {
   const dots = new Map();
   const center = GRID / 2;
+  const normalizedMix = normalizeMix(mix);
   for (let x = 0; x < GRID; x++) {
     for (let y = 0; y < GRID; y++) {
       for (let z = 0; z < LAYERS; z++) {
@@ -227,7 +276,7 @@ const createSphere = (radius = 18, color = '#8ecae6', effect = 'phong') => {
         const dy = y - center;
         const dz = z - center;
         if (dx*dx + dy*dy + dz*dz <= radius*radius) {
-          dots.set(key(x,y,z), { color, effect });
+          dots.set(key(x,y,z), { color, mix: normalizedMix });
         }
       }
     }
@@ -236,9 +285,9 @@ const createSphere = (radius = 18, color = '#8ecae6', effect = 'phong') => {
 };
 
 function App() {
-  const [dots, setDots] = useState(() => createSphere(18, '#8ecae6', 'phong'));
+  const [dots, setDots] = useState(() => createSphere(18, '#8ecae6', DEFAULT_MIX));
   const [color, setColor] = useState('#8ecae6');
-  const [effect, setEffect] = useState('phong');
+  const [paintMix, setPaintMix] = useState(DEFAULT_MIX);
   const [rot, setRot] = useState(45);
   const [layer, setLayer] = useState(32);
   const [mode, setMode] = useState('draw');
@@ -250,7 +299,7 @@ function App() {
     const k = key(x,y,layer);
     setDots(prev => {
       const m = new Map(prev);
-      mode==='erase' ? m.delete(k) : m.set(k,{ color, effect });
+      mode==='erase' ? m.delete(k) : m.set(k,{ color, mix: normalizeMix(paintMix) });
       return m;
     });
   };
@@ -268,7 +317,7 @@ function App() {
     const list = [];
     for (const [k,v] of dots) {
       const [x,y,z] = k.split(',').map(Number);
-      list.push({x,y,z,color:v.color,effect:v.effect});
+      list.push({x,y,z,color:v.color,mix:getVoxelMix(v)});
     }
     list.sort((a,b) => a.x+a.y+a.z - (b.x+b.y+b.z));
 
@@ -276,61 +325,39 @@ function App() {
       const p = project(d.x,d.y,d.z,rot);
       const px = cx + p.x * SPACING;
       const py = cy + p.y * SPACING;
+      const mix = d.mix;
 
-      if (d.effect === 'glow') {
-        const glowRadius = DOT_RADIUS * GLOW_RADIUS_MULTIPLIER;
-        const bloomRadius = DOT_RADIUS * BLOOM_RADIUS_MULTIPLIER;
-        const bloomGradient = ctx.createRadialGradient(px, py, DOT_RADIUS * 0.2, px, py, bloomRadius);
-        bloomGradient.addColorStop(0, hexToRGBA(d.color, 0.045));
-        bloomGradient.addColorStop(0.45, hexToRGBA(d.color, 0.018));
-        bloomGradient.addColorStop(1, hexToRGBA(d.color, 0));
-        const glowGradient = ctx.createRadialGradient(px, py, DOT_RADIUS * 0.25, px, py, glowRadius);
-        glowGradient.addColorStop(0, hexToRGBA(d.color, 0.11));
-        glowGradient.addColorStop(0.65, hexToRGBA(d.color, 0.035));
-        glowGradient.addColorStop(1, hexToRGBA(d.color, 0));
-
+      if (mix.glow > 0) {
+        drawGlowEffect(ctx, px, py, d.color, mix.glow);
+      }
+      if (mix.phong > 0) {
+        const { diffuse, specular } = calculatePhongLighting(
+          d.x, d.y, d.z,
+          lightPos.x, lightPos.y, lightPos.z,
+          sphereCenter, sphereCenter, sphereCenter
+        );
         ctx.save();
-        ctx.globalCompositeOperation = 'screen';
-        ctx.globalAlpha = 0.88;
-        ctx.beginPath();
-        ctx.arc(px, py, bloomRadius, 0, Math.PI*2);
-        ctx.fillStyle = bloomGradient;
-        ctx.fill();
-        ctx.beginPath();
-        ctx.arc(px, py, glowRadius, 0, Math.PI*2);
-        ctx.fillStyle = glowGradient;
-        ctx.fill();
-        ctx.restore();
-
+        ctx.globalAlpha = mix.phong;
         ctx.beginPath();
         ctx.arc(px, py, DOT_RADIUS, 0, Math.PI*2);
-        ctx.fillStyle = hexToRGBA(d.color, DOT_ALPHA);
+        ctx.fillStyle = applyPhongLighting(d.color, diffuse, specular);
         ctx.fill();
-        continue;
+        ctx.restore();
       }
-
-      if (d.effect === 'refraction') {
+      if (mix.refraction > 0) {
         const { diffuse, fresnel, refractiveLight } = calculateGlassLighting(
           d.x, d.y, d.z,
           lightPos.x, lightPos.y, lightPos.z,
           sphereCenter, sphereCenter, sphereCenter
         );
+        ctx.save();
+        ctx.globalAlpha = mix.refraction;
         ctx.beginPath();
         ctx.arc(px, py, DOT_RADIUS, 0, Math.PI*2);
         ctx.fillStyle = applyGlassLighting(d.color, diffuse, fresnel, refractiveLight);
         ctx.fill();
-        continue;
+        ctx.restore();
       }
-
-      const { diffuse, specular } = calculatePhongLighting(
-        d.x, d.y, d.z,
-        lightPos.x, lightPos.y, lightPos.z,
-        sphereCenter, sphereCenter, sphereCenter
-      );
-      ctx.beginPath();
-      ctx.arc(px, py, DOT_RADIUS, 0, Math.PI*2);
-      ctx.fillStyle = applyPhongLighting(d.color, diffuse, specular);
-      ctx.fill();
     }
   }, [dots, rot, lightPos]);
 
@@ -350,12 +377,7 @@ function App() {
       <div className="top-bar">
         <button className={"btn "+(mode==='draw'?'active':'')} onClick={()=>setMode('draw')}>Draw</button>
         <button className={"btn "+(mode==='erase'?'active':'')} onClick={()=>setMode('erase')}>Erase</button>
-        <button className="btn" onClick={()=>setDots(createSphere(18, color, effect))}>Reset Sphere</button>
-        {EFFECTS.map(e=>(
-          <button key={e.id} className={"btn "+(effect===e.id?'active':'')} onClick={()=>setEffect(e.id)}>
-            {e.label}
-          </button>
-        ))}
+        <button className="btn" onClick={()=>setDots(createSphere(18, color, paintMix))}>Reset Sphere</button>
         <div className="palette">
           {COLORS.map(c=>(
             <div key={c} className={"swatch "+(color===c?'selected':'')} style={{background:c}} onClick={()=>setColor(c)} />
@@ -364,7 +386,7 @@ function App() {
       </div>
 
       <div className="preview-box">
-        <h3 style={{marginBottom:10}}>Sphere • Per-Voxel Effect Mixer (Glow / Phong / Refraction)</h3>
+        <h3 style={{marginBottom:10}}>Sphere • Layered Effects Mixer (Opacity Sliders)</h3>
         <canvas ref={canvasRef} width="600" height="600"></canvas>
         <div className="controls">
           <div className="control-item">
@@ -386,6 +408,18 @@ function App() {
           <div className="control-item">
             <span>Light Z: {lightPos.z}</span>
             <input type="range" min="0" max={LAYERS-1} value={lightPos.z} onChange={e=>setLightPos(p=>({...p, z:+e.target.value}))} />
+          </div>
+          <div className="control-item">
+            <span>Paint Glow Opacity: {Math.round(paintMix.glow * 100)}%</span>
+            <input type="range" min="0" max="100" value={Math.round(paintMix.glow * 100)} onChange={e=>setPaintMix(m=>({...m, glow: +e.target.value / 100}))} />
+          </div>
+          <div className="control-item">
+            <span>Paint Phong Opacity: {Math.round(paintMix.phong * 100)}%</span>
+            <input type="range" min="0" max="100" value={Math.round(paintMix.phong * 100)} onChange={e=>setPaintMix(m=>({...m, phong: +e.target.value / 100}))} />
+          </div>
+          <div className="control-item">
+            <span>Paint Refraction Opacity: {Math.round(paintMix.refraction * 100)}%</span>
+            <input type="range" min="0" max="100" value={Math.round(paintMix.refraction * 100)} onChange={e=>setPaintMix(m=>({...m, refraction: +e.target.value / 100}))} />
           </div>
         </div>
       </div>
