@@ -11,7 +11,7 @@ def load_mesh(path: Path) -> trimesh.Trimesh:
     loaded = trimesh.load(path, force="scene")
 
     if isinstance(loaded, trimesh.Scene):
-        mesh = loaded.dump(concatenate=True)
+        mesh = loaded.to_geometry()
     elif isinstance(loaded, trimesh.Trimesh):
         mesh = loaded
     else:
@@ -47,7 +47,12 @@ def normalize_mesh_to_grid(mesh: trimesh.Trimesh, grid_size: int, margin: float 
 def voxelize(mesh: trimesh.Trimesh, grid_size: int, fill_volume: bool) -> np.ndarray:
     voxel_grid = mesh.voxelized(pitch=1.0)
     if fill_volume:
-        voxel_grid = voxel_grid.fill()
+        try:
+            voxel_grid = voxel_grid.fill()
+        except ModuleNotFoundError as exc:
+            raise RuntimeError(
+                "Volume fill requires scipy. Install scipy or run without --fill-volume."
+            ) from exc
 
     points = np.rint(voxel_grid.points).astype(int)
     points = np.clip(points, 0, grid_size - 1)
@@ -88,9 +93,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--grid-size", type=int, default=64, help="Target voxel grid size")
     parser.add_argument("--color", default="#8ecae6", help="Hex color to assign to every voxel")
     parser.add_argument(
-        "--surface-only",
+        "--fill-volume",
         action="store_true",
-        help="Keep only surface voxels (default fills solid volume)",
+        help="Fill interior voxels to generate a solid volume (requires scipy)",
     )
     parser.add_argument(
         "--format",
@@ -113,7 +118,7 @@ def main() -> None:
 
     mesh = load_mesh(args.input)
     mesh = normalize_mesh_to_grid(mesh, grid_size=args.grid_size)
-    points = voxelize(mesh, grid_size=args.grid_size, fill_volume=not args.surface_only)
+    points = voxelize(mesh, grid_size=args.grid_size, fill_volume=args.fill_volume)
 
     output_data = build_output(points, args.grid_size, args.color, args.format)
 

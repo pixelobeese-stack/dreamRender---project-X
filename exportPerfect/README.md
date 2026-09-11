@@ -20,7 +20,7 @@ Optional flags:
 
 - `--grid-size 64` target grid size (default `64`)
 - `--color "#8ecae6"` color assigned to voxels
-- `--surface-only` export only shell voxels instead of a filled volume
+- `--fill-volume` fill interior voxels (requires `scipy`)
 - `--format both|dots|map` output format control
 
 ## Output JSON
