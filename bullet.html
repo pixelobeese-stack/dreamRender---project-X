@@ -1,0 +1,530 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bullet Shader v1 • PBR Metallic with AO & Transmission</title>
+<script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body {
+  background: #E2E4E7;
+  font-family: sans-serif;
+  padding: 80px 10px 20px;
+}
+
+/* Top Bar */
+.top-bar {
+  position: fixed;
+  top:0; left:0; right:0;
+  background: white;
+  padding:12px 15px;
+  display:flex;
+  gap:10px;
+  align-items:center;
+  border-bottom:1px solid #ddd;
+  flex-wrap:wrap;
+  z-index:10;
+}
+.btn {
+  padding:8px 14px;
+  border:1px solid #ccc;
+  border-radius:8px;
+  background:#f8f9fa;
+  cursor:pointer;
+  font-weight: 500;
+}
+.btn.active {
+  background:#222;
+  color:white;
+  border-color:#222;
+}
+.preset {
+  padding:6px 12px;
+  border:1px solid #ccc;
+  border-radius:6px;
+  background:#f0f0f0;
+  cursor:pointer;
+  font-size:12px;
+}
+.preset:hover { background:#e0e0e0; }
+
+/* Preview */
+.preview-box {
+  background:white;
+  border-radius:12px;
+  padding:15px;
+  margin-bottom:15px;
+}
+canvas {
+  display:block;
+  margin:0 auto;
+  background:#111;
+  border-radius:8px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+}
+.controls {
+  margin-top:15px;
+  display:grid;
+  grid-template-columns:repeat(auto-fit, minmax(200px, 1fr));
+  gap:12px;
+}
+.control-item {
+  display:flex;
+  flex-direction:column;
+  gap:4px;
+  font-size:13px;
+}
+.control-item label {
+  font-weight: 500;
+  color: #333;
+}
+.control-item input[type="range"] {
+  width: 100%;
+  cursor: pointer;
+}
+.control-item input[type="number"] {
+  padding: 4px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+}
+
+/* Section Headers */
+.section-header {
+  margin-top: 20px;
+  margin-bottom: 10px;
+  font-weight: 600;
+  color: #555;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* Grid Box */
+.grid-box {
+  background:white;
+  border-radius:12px;
+  padding:15px;
+  overflow:auto;
+  max-height:50vh;
+}
+.grid {
+  display:grid;
+  grid-template-columns:repeat(64, 1fr);
+  gap:1px;
+  width:fit-content;
+}
+.cell {
+  width:12px; height:12px;
+  border-radius:50%;
+  background:#ddd;
+  border:none;
+  cursor:pointer;
+}
+.cell.filled { background:var(--c); }
+
+.info-box {
+  background: #f5f5f5;
+  border-left: 4px solid #222;
+  padding: 12px;
+  margin-top: 15px;
+  border-radius: 4px;
+  font-size: 12px;
+  color: #666;
+  line-height: 1.5;
+}
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel">
+const { useState, useRef, useEffect, useMemo } = React;
+
+const GRID = 64;
+const LAYERS = 64;
+const DOT_RADIUS = 2.5;
+const SPACING = 3.5;
+
+// ============================================
+// PBR & LIGHTING CONSTANTS
+// ============================================
+const MAX_LIGHT_DISTANCE = 50;
+
+// Metallic material properties (steel/polished bullet)
+const METALLIC = 0.95;
+const ROUGHNESS = 0.15; // Polished surface
+const REFLECTIVITY = 0.95;
+
+// Ambient Occlusion
+const AO_STRENGTH = 0.65;
+const AO_BIAS = 0.2;
+
+// Transmission (subsurface scattering-like effect)
+const TRANSMISSION_BASE = 0.1;
+
+// Specular parameters
+const FRESNEL_F0 = 0.04; // Dielectric base reflectance
+const SPECULAR_POWER = 128;
+const SPECULAR_AMOUNT = 1.2;
+
+// Environment lighting
+const AMBIENT_INTENSITY = 0.25;
+
+const key = (x,y,z) => `${x},${y},${z}`;
+const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
+const lerp = (a, b, t) => a + (b - a) * t;
+
+const project = (x,y,z,rot) => {
+  const rad = rot * Math.PI / 180;
+  const cx = x - GRID/2;
+  const cy = y - GRID/2;
+  return {
+    x: cx*Math.cos(rad) - cy*Math.sin(rad),
+    y: cx*Math.sin(rad) + cy*Math.cos(rad) - z*0.5
+  };
+};
+
+const normalize = (v) => {
+  const len = Math.hypot(v.x, v.y, v.z) || 1;
+  return { x: v.x / len, y: v.y / len, z: v.z / len };
+};
+
+const dot = (a, b) => a.x * b.x + a.y * b.y + a.z * b.z;
+
+const reflect = (incident, normal) => {
+  const d = dot(incident, normal);
+  return {
+    x: incident.x - 2 * d * normal.x,
+    y: incident.y - 2 * d * normal.y,
+    z: incident.z - 2 * d * normal.z
+  };
+};
+
+// ============================================
+// REALISTIC PBR SHADER - BULLET
+// ============================================
+const calculatePBRLighting = (
+  dotX, dotY, dotZ,
+  lightX, lightY, lightZ,
+  centerX, centerY, centerZ,
+  aoStrength, transmissionAmount, roughness, metallic
+) => {
+  // Surface normal (sphere center to surface)
+  const normal = normalize({
+    x: dotX - centerX,
+    y: dotY - centerY,
+    z: dotZ - centerZ
+  });
+
+  // Light direction
+  const toLight = { x: lightX - dotX, y: lightY - dotY, z: lightZ - dotZ };
+  const lightDist = Math.hypot(toLight.x, toLight.y, toLight.z);
+  const lightDir = normalize(toLight);
+
+  // View direction (simple camera position)
+  const camera = { x: centerX, y: centerY, z: -50 };
+  const toCamera = { x: camera.x - dotX, y: camera.y - dotY, z: camera.z - dotZ };
+  const viewDir = normalize(toCamera);
+
+  // Half vector for specular (Blinn-Phong)
+  const halfVec = normalize({
+    x: lightDir.x + viewDir.x,
+    y: lightDir.y + viewDir.y,
+    z: lightDir.z + viewDir.z
+  });
+
+  // Distance attenuation
+  const distAttenuation = Math.max(0.2, 1 - (lightDist / MAX_LIGHT_DISTANCE));
+
+  // Diffuse (Lambertian)
+  const ndotl = Math.max(0.0, dot(normal, lightDir));
+  const diffuse = ndotl * distAttenuation * 0.5; // Metal has low diffuse
+
+  // Specular (Cook-Torrance-like Fresnel + GGX approximation)
+  const ndotv = Math.max(0.0, dot(normal, viewDir));
+  const ndoth = Math.max(0.0, dot(normal, halfVec));
+
+  // Fresnel (Schlick approximation)
+  const fresnel = FRESNEL_F0 + (1 - FRESNEL_F0) * Math.pow(1 - ndoth, 5);
+
+  // Roughness affects specular sharpness
+  const roughnessAlpha = clamp(roughness * roughness, 0.001, 1);
+  const specularDenom = ndoth * ndoth * (roughnessAlpha - 1) + 1;
+  const ggx = Math.pow(roughnessAlpha / (Math.PI * specularDenom * specularDenom), 2);
+  
+  const specular = fresnel * ggx * ndotl * distAttenuation * SPECULAR_AMOUNT;
+
+  // Ambient Occlusion (depth-based approximation)
+  const depth = Math.hypot(dotX - centerX, dotY - centerY, dotZ - centerZ);
+  const radius = 18; // sphere radius
+  const aoDepth = clamp((depth - radius * 0.7) / (radius * 0.3), 0, 1);
+  const ao = lerp(1.0, 1 - aoDepth, aoStrength);
+
+  // Transmission (thin material light pass-through)
+  const backLighting = Math.max(0, dot(lightDir, {x: -normal.x, y: -normal.y, z: -normal.z}));
+  const transmission = backLighting * transmissionAmount * 0.3;
+
+  // Combine
+  const direct = diffuse + specular + transmission;
+  const ambient = AMBIENT_INTENSITY * ao;
+
+  return {
+    direct,
+    ambient,
+    specular,
+    diffuse,
+    fresnel,
+    ao,
+    transmission
+  };
+};
+
+const applyPBRShading = (hex, lighting, metallic, params) => {
+  const h = hex.replace('#','');
+  const baseR = parseInt(h.substr(0,2),16) || 128;
+  const baseG = parseInt(h.substr(2,2),16) || 128;
+  const baseB = parseInt(h.substr(4,2),16) || 128;
+
+  // Metallic surfaces reflect environment (use white light)
+  const metalColor = metallic > 0.5 ? { r: 220, g: 215, b: 210 } : { r: baseR, g: baseG, b: baseB };
+
+  // Direct + Ambient
+  const directIntensity = lighting.direct + lighting.ambient * 0.6;
+  let r = metalColor.r * directIntensity;
+  let g = metalColor.g * directIntensity;
+  let b = metalColor.b * directIntensity;
+
+  // Specular highlights (bright white)
+  const specHighlight = lighting.specular * params.specularStrength * 255;
+  r = Math.min(255, r + specHighlight * (1 - lighting.fresnel * 0.5));
+  g = Math.min(255, g + specHighlight * (1 - lighting.fresnel * 0.3));
+  b = Math.min(255, b + specHighlight);
+
+  // Transmission glow
+  const transGlow = lighting.transmission * params.transmissionStrength * 80;
+  r += transGlow;
+  g += transGlow * 0.9;
+  b += transGlow * 0.8;
+
+  return {
+    r: clamp(Math.round(r), 0, 255),
+    g: clamp(Math.round(g), 0, 255),
+    b: clamp(Math.round(b), 0, 255)
+  };
+};
+
+const rgbToCss = ({r, g, b}) => `rgb(${r},${g},${b})`;
+
+const createBulletShape = () => {
+  const dots = new Map();
+  const center = GRID / 2;
+  
+  // Bullet is elongated sphere (capsule-like)
+  for (let x = 0; x < GRID; x++) {
+    for (let y = 0; y < GRID; y++) {
+      for (let z = 0; z < LAYERS; z++) {
+        const dx = x - center;
+        const dy = y - center;
+        const dz = (z - center * 0.8) * 1.3; // Elongate along z
+        
+        const distSq = dx*dx + dy*dy + dz*dz;
+        if (distSq <= 18*18) {
+          dots.set(key(x,y,z), '#b0b0b0'); // Metallic gray
+        }
+      }
+    }
+  }
+  return dots;
+};
+
+// ============================================
+// PRESETS
+// ============================================
+const PRESETS = {
+  polished: { metallic: 0.98, roughness: 0.1, ao: 0.7, transmission: 0.05, specular: 1.1 },
+  brushed: { metallic: 0.92, roughness: 0.4, ao: 0.8, transmission: 0.1, specular: 0.8 },
+  matte: { metallic: 0.7, roughness: 0.7, ao: 0.9, transmission: 0.2, specular: 0.5 },
+  glow: { metallic: 0.85, roughness: 0.3, ao: 0.6, transmission: 0.5, specular: 1.5 },
+  transmit: { metallic: 0.5, roughness: 0.5, ao: 0.8, transmission: 0.8, specular: 0.9 }
+};
+
+// ============================================
+// REACT COMPONENT
+// ============================================
+function App() {
+  const [dots, setDots] = useState(() => createBulletShape());
+  const [rot, setRot] = useState(45);
+  const [layer, setLayer] = useState(32);
+  const [lightPos, setLightPos] = useState({x: 15, y: 15, z: 20});
+
+  // PBR Parameters
+  const [metallic, setMetallic] = useState(0.98);
+  const [roughness, setRoughness] = useState(0.15);
+  const [aoStrength, setAoStrength] = useState(0.65);
+  const [transmissionStrength, setTransmissionStrength] = useState(0.1);
+  const [specularStrength, setSpecularStrength] = useState(1.1);
+
+  const canvasRef = useRef(null);
+  const sphereCenter = GRID / 2;
+
+  // Apply preset
+  const applyPreset = (presetKey) => {
+    const p = PRESETS[presetKey];
+    setMetallic(p.metallic);
+    setRoughness(p.roughness);
+    setAoStrength(p.ao);
+    setTransmissionStrength(p.transmission);
+    setSpecularStrength(p.specular);
+  };
+
+  // Render
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const size = 700;
+    canvas.width = size;
+    canvas.height = size;
+    ctx.clearRect(0, 0, size, size);
+    const cx = size / 2, cy = size / 2;
+
+    const list = [];
+    for (const [k, c] of dots) {
+      const [x, y, z] = k.split(',').map(Number);
+      list.push({x, y, z, baseColor: c});
+    }
+    list.sort((a, b) => a.x + a.y + a.z - (b.x + b.y + b.z));
+
+    for (const d of list) {
+      const lighting = calculatePBRLighting(
+        d.x, d.y, d.z,
+        lightPos.x, lightPos.y, lightPos.z,
+        sphereCenter, sphereCenter, sphereCenter,
+        aoStrength,
+        transmissionStrength,
+        roughness,
+        metallic
+      );
+
+      const finalColor = applyPBRShading(d.baseColor, lighting, metallic, {
+        specularStrength,
+        transmissionStrength
+      });
+
+      const p = project(d.x, d.y, d.z, rot);
+      ctx.beginPath();
+      ctx.arc(cx + p.x * SPACING, cy + p.y * SPACING, DOT_RADIUS, 0, Math.PI * 2);
+      ctx.fillStyle = rgbToCss(finalColor);
+      ctx.fill();
+    }
+  }, [dots, rot, lightPos, metallic, roughness, aoStrength, transmissionStrength, specularStrength]);
+
+  const cells = useMemo(() => {
+    const arr = [];
+    for (let y = 0; y < GRID; y++) {
+      for (let x = 0; x < GRID; x++) {
+        arr.push({x, y, filled: dots.has(key(x, y, layer)), c: dots.get(key(x, y, layer))});
+      }
+    }
+    return arr;
+  }, [dots, layer]);
+
+  return (
+    <>
+      <div className="top-bar">
+        <button className="btn active">Bullet Shader v1</button>
+        <div style={{marginLeft: 'auto', display: 'flex', gap: '8px'}}>
+          {Object.keys(PRESETS).map(p => (
+            <button key={p} className="preset" onClick={() => applyPreset(p)}>
+              {p.charAt(0).toUpperCase() + p.slice(1)}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="preview-box">
+        <h3 style={{marginBottom: 10}}>🔫 Bullet Shader v1 • Realistic PBR Metallic</h3>
+        <canvas ref={canvasRef} width="700" height="700"></canvas>
+        <div className="info-box">
+          <strong>Shader Features:</strong> Physically Based Rendering • Metallic-Roughness Workflow • Ambient Occlusion • Fresnel Reflections • Transmission/Subsurface Scattering • Specular Highlights
+        </div>
+
+        {/* PBR Material Properties */}
+        <div className="section-header">PBR Material Properties</div>
+        <div className="controls">
+          <div className="control-item">
+            <label>Metallic: {metallic.toFixed(2)}</label>
+            <input type="range" min="0" max="1" step="0.01" value={metallic} onChange={e => setMetallic(+e.target.value)} />
+          </div>
+          <div className="control-item">
+            <label>Roughness: {roughness.toFixed(2)}</label>
+            <input type="range" min="0" max="1" step="0.01" value={roughness} onChange={e => setRoughness(+e.target.value)} />
+          </div>
+          <div className="control-item">
+            <label>Ambient Occlusion: {aoStrength.toFixed(2)}</label>
+            <input type="range" min="0" max="1" step="0.01" value={aoStrength} onChange={e => setAoStrength(+e.target.value)} />
+          </div>
+          <div className="control-item">
+            <label>Transmission: {transmissionStrength.toFixed(2)}</label>
+            <input type="range" min="0" max="1" step="0.01" value={transmissionStrength} onChange={e => setTransmissionStrength(+e.target.value)} />
+          </div>
+        </div>
+
+        {/* Lighting */}
+        <div className="section-header">Lighting</div>
+        <div className="controls">
+          <div className="control-item">
+            <label>Light X: {lightPos.x}</label>
+            <input type="range" min="0" max={GRID} value={lightPos.x} onChange={e => setLightPos(p => ({...p, x: +e.target.value}))} />
+          </div>
+          <div className="control-item">
+            <label>Light Y: {lightPos.y}</label>
+            <input type="range" min="0" max={GRID} value={lightPos.y} onChange={e => setLightPos(p => ({...p, y: +e.target.value}))} />
+          </div>
+          <div className="control-item">
+            <label>Light Z: {lightPos.z}</label>
+            <input type="range" min="0" max={LAYERS - 1} value={lightPos.z} onChange={e => setLightPos(p => ({...p, z: +e.target.value}))} />
+          </div>
+          <div className="control-item">
+            <label>Specular Strength: {specularStrength.toFixed(2)}</label>
+            <input type="range" min="0" max="2" step="0.01" value={specularStrength} onChange={e => setSpecularStrength(+e.target.value)} />
+          </div>
+        </div>
+
+        {/* View */}
+        <div className="section-header">Viewport</div>
+        <div className="controls">
+          <div className="control-item">
+            <label>Rotation: {rot}°</label>
+            <input type="range" min="0" max="360" value={rot} onChange={e => setRot(+e.target.value)} />
+          </div>
+          <div className="control-item">
+            <label>View Layer: {layer + 1}/{LAYERS}</label>
+            <input type="range" min="0" max={LAYERS - 1} value={layer} onChange={e => setLayer(+e.target.value)} />
+          </div>
+        </div>
+      </div>
+
+      <div className="grid-box">
+        <h3 style={{marginBottom: 10}}>64×64 Grid Editor</h3>
+        <div className="grid">
+          {cells.map(cell => (
+            <button
+              key={cell.x + '-' + cell.y}
+              className={"cell " + (cell.filled ? 'filled' : '')}
+              style={cell.filled ? {'--c': cell.c} : {}}
+            />
+          ))}
+        </div>
+      </div>
+    </>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
