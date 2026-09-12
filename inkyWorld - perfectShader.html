@@ -1,0 +1,2230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+
+<meta
+name=“viewport”
+content=“width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover”
+
+<meta name="theme-color" content="#e2e4e7">
+<title>Mix Shader • Bullet + Perfect + Crisp Glass</title>
+<script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>
+*{
+  margin:0;
+  padding:0;
+  box-sizing:border-box;
+  -webkit-tap-highlight-color:transparent;
+}
+:root{
+  --bg:#e2e4e7;
+  --panel:#ffffff;
+  --panel2:#f7f8fa;
+  --line:#d7d9dd;
+  --text:#17191c;
+  --muted:#6d737b;
+  --accent:#111318;
+  --radius:14px;
+}
+html,
+body,
+#root{
+  min-height:100%;
+}
+body{
+  background:
+    radial-gradient(circle at 50% -20%, #ffffff 0%, #e2e4e7 52%, #d7dade 100%);
+  color:var(--text);
+  font-family:
+    -apple-system,
+    BlinkMacSystemFont,
+    "SF Pro Display",
+    "SF Pro Text",
+    Helvetica,
+    Arial,
+    sans-serif;
+  padding:
+    calc(76px + env(safe-area-inset-top))
+    10px
+    calc(30px + env(safe-area-inset-bottom));
+}
+button,
+input{
+  font:inherit;
+}
+button{
+  touch-action:manipulation;
+}
+.top-bar{
+  position:fixed;
+  top:0;
+  left:0;
+  right:0;
+  z-index:20;
+  padding:
+    calc(10px + env(safe-area-inset-top))
+    12px
+    10px;
+  background:rgba(255,255,255,.92);
+  backdrop-filter:blur(18px) saturate(150%);
+  -webkit-backdrop-filter:blur(18px) saturate(150%);
+  border-bottom:1px solid rgba(0,0,0,.08);
+  display:flex;
+  align-items:center;
+  gap:7px;
+  overflow-x:auto;
+  scrollbar-width:none;
+}
+.top-bar::-webkit-scrollbar{
+  display:none;
+}
+.btn{
+  flex:0 0 auto;
+  min-height:38px;
+  padding:8px 13px;
+  border:1px solid #cfd2d7;
+  border-radius:10px;
+  background:linear-gradient(#fff,#f2f3f5);
+  color:#202226;
+  cursor:pointer;
+  font-weight:600;
+  font-size:13px;
+  box-shadow:
+    0 1px 1px rgba(0,0,0,.04),
+    inset 0 1px rgba(255,255,255,.8);
+  transition:
+    transform .12s ease,
+    background .12s ease,
+    box-shadow .12s ease;
+}
+.btn:active{
+  transform:scale(.96);
+}
+.btn.active{
+  background:#15171b;
+  color:#fff;
+  border-color:#15171b;
+  box-shadow:
+    0 3px 10px rgba(0,0,0,.18),
+    inset 0 1px rgba(255,255,255,.08);
+}
+.btn.danger{
+  color:#a71919;
+}
+.preview-box,
+.grid-box{
+  background:rgba(255,255,255,.96);
+  border:1px solid rgba(0,0,0,.055);
+  border-radius:var(--radius);
+  padding:14px;
+  margin-bottom:14px;
+  box-shadow:
+    0 8px 28px rgba(0,0,0,.07),
+    0 1px 2px rgba(0,0,0,.05);
+}
+.preview-head{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:10px;
+  margin-bottom:12px;
+}
+.preview-title{
+  font-size:17px;
+  font-weight:750;
+  letter-spacing:-.3px;
+}
+.preview-subtitle{
+  font-size:11px;
+  color:var(--muted);
+  margin-top:3px;
+}
+.status-pill{
+  flex:0 0 auto;
+  padding:6px 9px;
+  border-radius:999px;
+  background:#f0f2f5;
+  border:1px solid #e0e2e5;
+  color:#60656d;
+  font-size:10px;
+  font-weight:700;
+}
+.canvas-wrap{
+  position:relative;
+  width:100%;
+  max-width:700px;
+  margin:0 auto;
+  border-radius:12px;
+  overflow:hidden;
+  background:
+    linear-gradient(45deg,#202328 25%,transparent 25%),
+    linear-gradient(-45deg,#202328 25%,transparent 25%),
+    linear-gradient(45deg,transparent 75%,#202328 75%),
+    linear-gradient(-45deg,transparent 75%,#202328 75%);
+  background-size:20px 20px;
+  background-position:0 0,0 10px,10px -10px,-10px 0;
+  box-shadow:
+    inset 0 0 0 1px rgba(255,255,255,.08),
+    0 7px 22px rgba(0,0,0,.20);
+}
+.canvas-wrap canvas{
+  display:block;
+  width:100%;
+  height:auto;
+  aspect-ratio:1;
+  touch-action:none;
+}
+.canvas-overlay{
+  position:absolute;
+  left:10px;
+  bottom:9px;
+  padding:5px 8px;
+  border-radius:7px;
+  background:rgba(0,0,0,.42);
+  color:rgba(255,255,255,.8);
+  font-size:10px;
+  pointer-events:none;
+}
+.section-header{
+  margin-top:19px;
+  margin-bottom:9px;
+  color:#626870;
+  font-size:11px;
+  font-weight:800;
+  text-transform:uppercase;
+  letter-spacing:.7px;
+}
+.controls{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(190px,1fr));
+  gap:9px;
+}
+.control-item{
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+  padding:10px 11px;
+  background:var(--panel2);
+  border:1px solid #e1e3e6;
+  border-radius:10px;
+}
+.control-top{
+  display:flex;
+  justify-content:space-between;
+  gap:8px;
+}
+.control-item label{
+  color:#3e4349;
+  font-size:12px;
+  font-weight:650;
+}
+.value{
+  color:#777d85;
+  font-variant-numeric:tabular-nums;
+  font-size:11px;
+  font-weight:700;
+}
+input[type="range"]{
+  width:100%;
+  height:22px;
+  cursor:pointer;
+  accent-color:#15171b;
+}
+input[type="range"]::-webkit-slider-runnable-track{
+  height:4px;
+  border-radius:4px;
+  background:#d3d6da;
+}
+input[type="range"]::-webkit-slider-thumb{
+  appearance:none;
+  -webkit-appearance:none;
+  width:18px;
+  height:18px;
+  margin-top:-7px;
+  border-radius:50%;
+  border:2px solid white;
+  background:#15171b;
+  box-shadow:
+    0 1px 4px rgba(0,0,0,.3);
+}
+input[type="range"]::-moz-range-track{
+  height:4px;
+  border-radius:4px;
+  background:#d3d6da;
+}
+input[type="range"]::-moz-range-thumb{
+  width:16px;
+  height:16px;
+  border-radius:50%;
+  border:2px solid white;
+  background:#15171b;
+}
+.palette-wrap{
+  margin-left:auto;
+  flex:0 0 auto;
+  padding-left:5px;
+}
+.palette-title{
+  font-size:9px;
+  color:#777d84;
+  text-transform:uppercase;
+  letter-spacing:.5px;
+  margin-bottom:5px;
+}
+.palette{
+  display:grid;
+  grid-template-columns:repeat(14,19px);
+  gap:3px;
+}
+.swatch{
+  width:19px;
+  height:19px;
+  padding:0;
+  border-radius:5px;
+  border:1px solid rgba(0,0,0,.22);
+  cursor:pointer;
+}
+.swatch.selected{
+  outline:2px solid #111;
+  outline-offset:1px;
+}
+.preset-row{
+  display:flex;
+  gap:7px;
+  overflow-x:auto;
+  padding-bottom:2px;
+  scrollbar-width:none;
+}
+.preset-row::-webkit-scrollbar{
+  display:none;
+}
+.preset{
+  flex:0 0 auto;
+  padding:8px 11px;
+  border:1px solid #d4d7db;
+  border-radius:9px;
+  background:#fff;
+  color:#30343a;
+  font-size:11px;
+  font-weight:700;
+  cursor:pointer;
+}
+.preset:active{
+  transform:scale(.96);
+}
+.grid-box{
+  overflow:auto;
+  max-height:52vh;
+  -webkit-overflow-scrolling:touch;
+}
+.grid-head{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  margin-bottom:10px;
+}
+.grid-title{
+  font-size:16px;
+  font-weight:750;
+}
+.grid-info{
+  color:#777d85;
+  font-size:10px;
+}
+.grid{
+  display:grid;
+  grid-template-columns:repeat(64,12px);
+  gap:1px;
+  width:max-content;
+}
+.cell{
+  width:12px;
+  height:12px;
+  padding:0;
+  border:0;
+  border-radius:50%;
+  background:#d8dade;
+  cursor:pointer;
+}
+.cell.filled{
+  background:var(--c);
+  box-shadow:
+    inset 0 0 0 1px rgba(0,0,0,.15);
+}
+.footer-tools{
+  display:flex;
+  gap:8px;
+  margin-top:14px;
+  flex-wrap:wrap;
+}
+.small-btn{
+  border:1px solid #d3d6da;
+  background:#f7f8f9;
+  border-radius:9px;
+  padding:8px 11px;
+  font-size:11px;
+  font-weight:700;
+  cursor:pointer;
+}
+@media(max-width:600px){
+  body{
+    padding-left:7px;
+    padding-right:7px;
+  }
+  .preview-box,
+  .grid-box{
+    padding:10px;
+    border-radius:12px;
+  }
+  .controls{
+    grid-template-columns:1fr;
+  }
+  .palette-wrap{
+    display:none;
+  }
+  .preview-title{
+    font-size:15px;
+  }
+}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const {
+  useState,
+  useRef,
+  useEffect,
+  useMemo
+} = React;
+const GRID = 64;
+const LAYERS = 64;
+const DOT_RADIUS = 2.65;
+const SPACING = 3.55;
+const MS_PAINT_COLORS = [
+  '#000000','#7f7f7f','#880015','#ed1c24',
+  '#ff7f27','#fff200','#22b14c','#00a2e8',
+  '#3f48cc','#a349a4','#ffffff','#c3c3c3',
+  '#b97a57','#ffaec9','#404040','#b5b5b5',
+  '#ffc90e','#efe4b0','#b5e61d','#99d9ea',
+  '#7092be','#c8bfe7','#ead1dc','#fce5cd'
+];
+const MAX_LIGHT_DISTANCE = 60;
+const FRESNEL_F0 = 0.04;
+const key = (x,y,z) => `${x},${y},${z}`;
+const clamp = (v,min,max) =>
+  Math.max(min,Math.min(max,v));
+const lerp = (a,b,t) =>
+  a+(b-a)*t;
+const normalize = v => {
+  const len =
+    Math.hypot(v.x,v.y,v.z) || 1;
+  return {
+    x:v.x/len,
+    y:v.y/len,
+    z:v.z/len
+  };
+};
+const dot = (a,b) =>
+  a.x*b.x+a.y*b.y+a.z*b.z;
+const hexToRgb = hex => {
+  const h = hex.replace('#','');
+  return {
+    r:parseInt(h.slice(0,2),16) || 0,
+    g:parseInt(h.slice(2,4),16) || 0,
+    b:parseInt(h.slice(4,6),16) || 0
+  };
+};
+/* --------------------------------------------------
+   CAMERA / PROJECTION
+-------------------------------------------------- */
+const project = (x,y,z,rot,elevation=0) => {
+  const r =
+    rot*Math.PI/180;
+  const e =
+    elevation*Math.PI/180;
+  const cx =
+    x-GRID/2;
+  const cy =
+    y-GRID/2;
+  const rx =
+    cx*Math.cos(r)-cy*Math.sin(r);
+  const ry =
+    cx*Math.sin(r)+cy*Math.cos(r);
+  const vertical =
+    ry*Math.cos(e)-z*Math.sin(e);
+  return {
+    x:rx,
+    y:vertical
+  };
+};
+/* --------------------------------------------------
+   LAYER COMPOSITOR
+-------------------------------------------------- */
+const compositeLayers = layers => {
+  let out={
+    r:0,
+    g:0,
+    b:0,
+    a:0
+  };
+  for(const layer of layers){
+    const a =
+      clamp(layer.a,0,1);
+    const nextA =
+      a+out.a*(1-a);
+    if(nextA<=0) continue;
+    out={
+      r:Math.round(
+        (
+          layer.r*a+
+          out.r*out.a*(1-a)
+        )/nextA
+      ),
+      g:Math.round(
+        (
+          layer.g*a+
+          out.g*out.a*(1-a)
+        )/nextA
+      ),
+      b:Math.round(
+        (
+          layer.b*a+
+          out.b*out.a*(1-a)
+        )/nextA
+      ),
+      a:nextA
+    };
+  }
+  return out;
+};
+/* --------------------------------------------------
+   BULLET / METAL
+-------------------------------------------------- */
+const calculateBulletLighting = (
+  x,y,z,
+  lightX,lightY,lightZ,
+  centerX,centerY,centerZ,
+  aoStrength,
+  transmission,
+  roughness,
+  specularStrength
+) => {
+  const normal =
+    normalize({
+      x:x-centerX,
+      y:y-centerY,
+      z:z-centerZ
+    });
+  const lightVector={
+    x:lightX-x,
+    y:lightY-y,
+    z:lightZ-z
+  };
+  const distance =
+    Math.hypot(
+      lightVector.x,
+      lightVector.y,
+      lightVector.z
+    );
+  const lightDir =
+    normalize(lightVector);
+  const viewDir =
+    normalize({
+      x:centerX-x,
+      y:centerY-y,
+      z:-55-z
+    });
+  const half =
+    normalize({
+      x:lightDir.x+viewDir.x,
+      y:lightDir.y+viewDir.y,
+      z:lightDir.z+viewDir.z
+    });
+  const attenuation =
+    Math.max(
+      .12,
+      1-distance/MAX_LIGHT_DISTANCE
+    );
+  const ndotl =
+    Math.max(0,dot(normal,lightDir));
+  const ndoth =
+    Math.max(0,dot(normal,half));
+  const diffuse =
+    ndotl*attenuation*.85;
+  const fresnel =
+    FRESNEL_F0+
+    (1-FRESNEL_F0)*
+    Math.pow(1-ndoth,5);
+  /*
+    More stable GGX approximation.
+    The original formula could become extremely
+    bright when roughness approached zero.
+  */
+  const alpha =
+    Math.max(.035,roughness*roughness);
+  const denom =
+    ndoth*ndoth*(alpha-1)+1;
+  const distribution =
+    alpha/
+    (Math.PI*denom*denom);
+  const specular =
+    clamp(
+      fresnel*
+      distribution*
+      ndotl*
+      attenuation*
+      .35*
+      specularStrength,
+      0,
+      1.8
+    );
+  const depth =
+    Math.hypot(
+      x-centerX,
+      y-centerY,
+      z-centerZ
+    );
+  const aoDepth =
+    clamp(
+      (depth-12)/10,
+      0,
+      1
+    );
+  const ao =
+    lerp(
+      1,
+      1-aoDepth,
+      aoStrength
+    );
+  const back =
+    Math.max(
+      0,
+      dot(
+        lightDir,
+        {
+          x:-normal.x,
+          y:-normal.y,
+          z:-normal.z
+        }
+      )
+    );
+  const transmissionLight =
+    back*transmission*.25;
+  return {
+    diffuse,
+    ambient:.22*ao,
+    specular,
+    fresnel,
+    transmission:transmissionLight
+  };
+};
+const applyBulletShading = (
+  hex,
+  lighting
+) => {
+  const base =
+    hexToRgb(hex);
+  const intensity =
+    clamp(
+      lighting.diffuse+
+      lighting.ambient,
+      0,
+      1.45
+    );
+  /*
+    Keep the chosen colour visible.
+    This is considerably better than turning
+    everything into a grey metal surface.
+  */
+  let r=base.r*intensity;
+  let g=base.g*intensity;
+  let b=base.b*intensity;
+  const highlight =
+    lighting.specular*255;
+  r+=highlight;
+  g+=highlight;
+  b+=highlight*1.05;
+  const trans =
+    lighting.transmission*70;
+  r+=trans;
+  g+=trans*.92;
+  b+=trans*.82;
+  return {
+    r:clamp(Math.round(r),0,255),
+    g:clamp(Math.round(g),0,255),
+    b:clamp(Math.round(b),0,255)
+  };
+};
+/* --------------------------------------------------
+   PERFECT / PHONG
+-------------------------------------------------- */
+const calculatePerfectLighting = (
+  x,y,z,
+  lightX,lightY,lightZ,
+  centerX,centerY,centerZ,
+  shininess
+) => {
+  const normal =
+    normalize({
+      x:x-centerX,
+      y:y-centerY,
+      z:z-centerZ
+    });
+  const light =
+    normalize({
+      x:lightX-x,
+      y:lightY-y,
+      z:lightZ-z
+    });
+  const view =
+    normalize({
+      x:centerX-x,
+      y:centerY-y,
+      z:-50-z
+    });
+  const half =
+    normalize({
+      x:light.x+view.x,
+      y:light.y+view.y,
+      z:light.z+view.z
+    });
+  const ndotl =
+    Math.max(
+      0,
+      dot(normal,light)
+    );
+  const ndoth =
+    Math.max(
+      0,
+      dot(normal,half)
+    );
+  const specular =
+    Math.pow(
+      ndoth,
+      shininess
+    )*.65;
+  return {
+    diffuse:.18+ndotl*.92,
+    specular:clamp(specular,0,1)
+  };
+};
+const applyPerfectShading = (
+  hex,
+  diffuse,
+  specular
+) => {
+  const base =
+    hexToRgb(hex);
+  return {
+    r:clamp(
+      Math.round(
+        base.r*diffuse+
+        255*specular
+      ),
+      0,
+      255
+    ),
+    g:clamp(
+      Math.round(
+        base.g*diffuse+
+        255*specular
+      ),
+      0,
+      255
+    ),
+    b:clamp(
+      Math.round(
+        base.b*diffuse+
+        255*specular
+      ),
+      0,
+      255
+    )
+  };
+};
+/* --------------------------------------------------
+   CRISP REALISTIC GLASS
+-------------------------------------------------- */
+const refract = (
+  incident,
+  normal,
+  eta
+) => {
+  const cosi =
+    clamp(
+      dot(incident,normal),
+      -1,
+      1
+    );
+  const k =
+    1-
+    eta*eta*
+    (1-cosi*cosi);
+  if(k<0){
+    return {
+      x:0,
+      y:0,
+      z:0
+    };
+  }
+  return {
+    x:
+      eta*incident.x-
+      (eta*cosi+Math.sqrt(k))*normal.x,
+    y:
+      eta*incident.y-
+      (eta*cosi+Math.sqrt(k))*normal.y,
+    z:
+      eta*incident.z-
+      (eta*cosi+Math.sqrt(k))*normal.z
+  };
+};
+const calculateGlassLighting = (
+  x,y,z,
+  lightX,lightY,lightZ,
+  centerX,centerY,centerZ,
+  ior,
+  refractionAmount
+) => {
+  const normal =
+    normalize({
+      x:x-centerX,
+      y:y-centerY,
+      z:z-centerZ
+    });
+  const view =
+    normalize({
+      x:centerX-x,
+      y:centerY-y,
+      z:-55-z
+    });
+  const light =
+    normalize({
+      x:lightX-x,
+      y:lightY-y,
+      z:lightZ-z
+    });
+  const facing =
+    Math.max(
+      0,
+      dot(normal,view)
+    );
+  /*
+    Schlick Fresnel.
+    This produces the characteristic glass
+    edge reflection.
+  */
+  const fresnel =
+    FRESNEL_F0+
+    (1-FRESNEL_F0)*
+    Math.pow(
+      1-facing,
+      5
+    );
+  const refracted =
+    normalize(
+      refract(
+        {
+          x:-view.x,
+          y:-view.y,
+          z:-view.z
+        },
+        normal,
+        1/ior
+      )
+    );
+  const refraction =
+    Math.pow(
+      Math.max(
+        0,
+        dot(refracted,light)
+      ),
+      2.5
+    )*
+    refractionAmount;
+  const rim =
+    Math.pow(
+      1-facing,
+      2.4
+    );
+  return {
+    fresnel,
+    refraction,
+    rim,
+    diffuse:
+      .35+
+      Math.max(
+        0,
+        dot(normal,light)
+      )*.65
+  };
+};
+const applyGlassShading = (
+  hex,
+  lighting,
+  opacity,
+  strength,
+  tint
+) => {
+  const base =
+    hexToRgb(hex);
+  const tintRGB =
+    hexToRgb(tint);
+  const edge =
+    lighting.fresnel*
+    190*
+    strength;
+  const rim =
+    lighting.rim*
+    85*
+    strength;
+  const refraction =
+    lighting.refraction*
+    170*
+    strength;
+  /*
+    Mix original colour with a very subtle
+    cool glass tint.
+  */
+  const tintMix =
+    .16*strength;
+  let r =
+    base.r*(1-tintMix)+
+    tintRGB.r*tintMix;
+  let g =
+    base.g*(1-tintMix)+
+    tintRGB.g*tintMix;
+  let b =
+    base.b*(1-tintMix)+
+    tintRGB.b*tintMix;
+  r =
+    r*lighting.diffuse*.58+
+    edge+
+    rim+
+    refraction*.42;
+  g =
+    g*lighting.diffuse*.62+
+    edge*.96+
+    rim+
+    refraction*.68;
+  b =
+    b*lighting.diffuse*.72+
+    edge*1.18+
+    rim*1.15+
+    refraction;
+  const a =
+    clamp(
+      (
+        .18+
+        lighting.diffuse*.16+
+        lighting.fresnel*.62+
+        lighting.rim*.18
+      )*
+      opacity*
+      strength,
+      0,
+      .95
+    );
+  return {
+    r:clamp(Math.round(r),0,255),
+    g:clamp(Math.round(g),0,255),
+    b:clamp(Math.round(b),0,255),
+    a
+  };
+};
+/* --------------------------------------------------
+   SPHERE
+-------------------------------------------------- */
+const createSphere = (
+  radius=18,
+  color='#00a2e8'
+) => {
+  const dots =
+    new Map();
+  const center =
+    GRID/2;
+  const radiusSquared =
+    radius*radius;
+  for(let x=0;x<GRID;x++){
+    for(let y=0;y<GRID;y++){
+      for(let z=0;z<LAYERS;z++){
+        const dx=x-center;
+        const dy=y-center;
+        const dz=z-center;
+        if(
+          dx*dx+
+          dy*dy+
+          dz*dz
+          <=radiusSquared
+        ){
+          dots.set(
+            key(x,y,z),
+            color
+          );
+        }
+      }
+    }
+  }
+  return dots;
+};
+/* --------------------------------------------------
+   APP
+-------------------------------------------------- */
+function App(){
+  const [dots,setDots] =
+    useState(
+      () =>
+        createSphere(
+          18,
+          '#00a2e8'
+        )
+    );
+  const [color,setColor] =
+    useState('#00a2e8');
+  const [rot,setRot] =
+    useState(45);
+  const [elevation,setElevation] =
+    useState(8);
+  const [layer,setLayer] =
+    useState(32);
+  const [mode,setMode] =
+    useState('draw');
+  const [lightPos,setLightPos] =
+    useState({
+      x:15,
+      y:15,
+      z:20
+    });
+  /* Master */
+  const [master,setMaster] =
+    useState(1);
+  const [exposure,setExposure] =
+    useState(1);
+  const [contrast,setContrast] =
+    useState(1);
+  /* Layers */
+  const [bulletOpacity,setBulletOpacity] =
+    useState(.62);
+  const [perfectOpacity,setPerfectOpacity] =
+    useState(.52);
+  const [glassOpacity,setGlassOpacity] =
+    useState(.30);
+  /* Bullet */
+  const [roughness,setRoughness] =
+    useState(.15);
+  const [aoStrength,setAoStrength] =
+    useState(.55);
+  const [transmissionStrength,setTransmissionStrength] =
+    useState(.12);
+  const [specularStrength,setSpecularStrength] =
+    useState(1.05);
+  /* Glass */
+  const [glassStrength,setGlassStrength] =
+    useState(.90);
+  const [glassIOR,setGlassIOR] =
+    useState(1.45);
+  const [refractionAmount,setRefractionAmount] =
+    useState(.72);
+  const [glassTint,setGlassTint] =
+    useState('#dff7ff');
+  const [shininess,setShininess] =
+    useState(64);
+  const [showGrid,setShowGrid] =
+    useState(false);
+  const canvasRef =
+    useRef(null);
+  const sphereCenter =
+    GRID/2;
+  /* ------------------------------------------------
+     GRID EDIT
+  ------------------------------------------------ */
+  const clickCell = (x,y) => {
+    const k =
+      key(x,y,layer);
+    setDots(prev => {
+      const m =
+        new Map(prev);
+      if(mode==='erase'){
+        m.delete(k);
+      }else{
+        m.set(k,color);
+      }
+      return m;
+    });
+  };
+  const clearLayer = () => {
+    setDots(prev => {
+      const m =
+        new Map(prev);
+      for(const k of m.keys()){
+        const z =
+          Number(
+            k.split(',')[2]
+          );
+        if(z===layer){
+          m.delete(k);
+        }
+      }
+      return m;
+    });
+  };
+  const recolorAllVoxels = () => {
+    setDots(prev => {
+      const m =
+        new Map();
+      for(const k of prev){
+        m.set(k,color);
+      }
+      return m;
+    });
+  };
+  /* ------------------------------------------------
+     PRESETS
+  ------------------------------------------------ */
+  const applyPreset = name => {
+    const presets = {
+      chrome:{
+        bullet:.78,
+        perfect:.48,
+        glass:.16,
+        rough:.06,
+        ao:.42,
+        transmission:.08,
+        spec:.1,
+        glassStrength:.42,
+        refraction:.38,
+        exposure:1.05,
+        contrast:1.08
+      },
+      glass:{
+        bullet:.24,
+        perfect:.28,
+        glass:.72,
+        rough:.08,
+        ao:.28,
+        transmission:.18,
+        spec:.8,
+        glassStrength:1.12,
+        refraction:.95,
+        exposure:1.05,
+        contrast:1.12
+      },
+      satin:{
+        bullet:.68,
+        perfect:.42,
+        glass:.18,
+        rough:.42,
+        ao:.62,
+        transmission:.08,
+        spec:.65,
+        glassStrength:.35,
+        refraction:.25,
+        exposure:1,
+        contrast:1
+      },
+      crystal:{
+        bullet:.15,
+        perfect:.18,
+        glass:.82,
+        rough:.02,
+        ao:.18,
+        transmission:.28,
+        spec:1.3,
+        glassStrength:1.35,
+        refraction:1.2,
+        exposure:1.12,
+        contrast:1.18
+      }
+    };
+    const p =
+      presets[name];
+    if(!p) return;
+    setBulletOpacity(p.bullet);
+    setPerfectOpacity(p.perfect);
+    setGlassOpacity(p.glass);
+    setRoughness(p.rough);
+    setAoStrength(p.ao);
+    setTransmissionStrength(p.transmission);
+    setSpecularStrength(p.spec);
+    setGlassStrength(p.glassStrength);
+    setRefractionAmount(p.refraction);
+    setExposure(p.exposure);
+    setContrast(p.contrast);
+  };
+  const resetShader = () => {
+    setMaster(1);
+    setExposure(1);
+    setContrast(1);
+    setBulletOpacity(.62);
+    setPerfectOpacity(.52);
+    setGlassOpacity(.30);
+    setRoughness(.15);
+    setAoStrength(.55);
+    setTransmissionStrength(.12);
+    setSpecularStrength(1.05);
+    setGlassStrength(.90);
+    setGlassIOR(1.45);
+    setRefractionAmount(.72);
+    setShininess(64);
+    setLightPos({
+      x:15,
+      y:15,
+      z:20
+    });
+    setRot(45);
+    setElevation(8);
+  };
+  /* ------------------------------------------------
+     CANVAS RENDER
+  ------------------------------------------------ */
+  useEffect(() => {
+    const canvas =
+      canvasRef.current;
+    if(!canvas) return;
+    const rect =
+      canvas.getBoundingClientRect();
+    const dpr =
+      Math.min(
+        window.devicePixelRatio || 1,
+        2
+      );
+    const size =
+      Math.max(
+        420,
+        Math.round(
+          rect.width*dpr
+        )
+      );
+    canvas.width=size;
+    canvas.height=size;
+    const ctx =
+      canvas.getContext('2d');
+    ctx.clearRect(
+      0,
+      0,
+      size,
+      size
+    );
+    const cx =
+      size/2;
+    const cy =
+      size/2;
+    /*
+      Draw a subtle internal vignette.
+    */
+    const vignette =
+      ctx.createRadialGradient(
+        cx,
+        cy,
+        size*.05,
+        cx,
+        cy,
+        size*.55
+      );
+    vignette.addColorStop(
+      0,
+      'rgba(255,255,255,.035)'
+    );
+    vignette.addColorStop(
+      1,
+      'rgba(0,0,0,.18)'
+    );
+    ctx.fillStyle =
+      vignette;
+    ctx.fillRect(
+      0,
+      0,
+      size,
+      size
+    );
+    /* Optional circular guide */
+    if(showGrid){
+      ctx.beginPath();
+      ctx.arc(
+        cx,
+        cy,
+        size*.455,
+        0,
+        Math.PI*2
+      );
+      ctx.strokeStyle =
+        'rgba(255,255,255,.12)';
+      ctx.lineWidth=1;
+      ctx.stroke();
+    }
+    const list=[];
+    for(
+      const [k,voxelColor]
+      of dots
+    ){
+      const [
+        x,
+        y,
+        z
+      ] =
+        k.split(',').map(Number);
+      list.push({
+        x,
+        y,
+        z,
+        color:voxelColor
+      });
+    }
+    /*
+      Depth ordering.
+    */
+    list.sort(
+      (a,b) =>
+        (
+          a.x+
+          a.y+
+          a.z
+        )-
+        (
+          b.x+
+          b.y+
+          b.z
+        )
+    );
+    for(const d of list){
+      const bulletLighting =
+        calculateBulletLighting(
+          d.x,
+          d.y,
+          d.z,
+          lightPos.x,
+          lightPos.y,
+          lightPos.z,
+          sphereCenter,
+          sphereCenter,
+          sphereCenter,
+          aoStrength,
+          transmissionStrength,
+          roughness,
+          specularStrength
+        );
+      const bullet =
+        applyBulletShading(
+          d.color,
+          bulletLighting
+        );
+      const perfectLighting =
+        calculatePerfectLighting(
+          d.x,
+          d.y,
+          d.z,
+          lightPos.x,
+          lightPos.y,
+          lightPos.z,
+          sphereCenter,
+          sphereCenter,
+          sphereCenter,
+          shininess
+        );
+      const perfect =
+        applyPerfectShading(
+          d.color,
+          perfectLighting.diffuse,
+          perfectLighting.specular
+        );
+      const glassLighting =
+        calculateGlassLighting(
+          d.x,
+          d.y,
+          d.z,
+          lightPos.x,
+          lightPos.y,
+          lightPos.z,
+          sphereCenter,
+          sphereCenter,
+          sphereCenter,
+          glassIOR,
+          refractionAmount
+        );
+      const glass =
+        applyGlassShading(
+          d.color,
+          glassLighting,
+          glassOpacity,
+          glassStrength,
+          glassTint
+        );
+      const mixed =
+        compositeLayers([
+          {
+            ...bullet,
+            a:
+              bulletOpacity*
+              master
+          },
+          {
+            ...perfect,
+            a:
+              perfectOpacity*
+              master
+          },
+          {
+            ...glass,
+            a:
+              glass.a*
+              master
+          }
+        ]);
+      /*
+        Exposure.
+      */
+      let r =
+        mixed.r*
+        exposure;
+      let g =
+        mixed.g*
+        exposure;
+      let b =
+        mixed.b*
+        exposure;
+      /*
+        Contrast around 128.
+      */
+      r =
+        128+
+        (r-128)*contrast;
+      g =
+        128+
+        (g-128)*contrast;
+      b =
+        128+
+        (b-128)*contrast;
+      r=clamp(r,0,255);
+      g=clamp(g,0,255);
+      b=clamp(b,0,255);
+      const p =
+        project(
+          d.x,
+          d.y,
+          d.z,
+          rot,
+          elevation
+        );
+      const px =
+        cx+
+        p.x*
+        SPACING*
+        dpr;
+      const py =
+        cy+
+        p.y*
+        SPACING*
+        dpr;
+      const radius =
+        DOT_RADIUS*
+        dpr;
+      ctx.beginPath();
+      ctx.arc(
+        px,
+        py,
+        radius,
+        0,
+        Math.PI*2
+      );
+      ctx.fillStyle =
+        `rgba(${Math.round(r)},${Math.round(g)},${Math.round(b)},${clamp(mixed.a,0,1)})`;
+      ctx.fill();
+    }
+  },[
+    dots,
+    rot,
+    elevation,
+    lightPos,
+    master,
+    exposure,
+    contrast,
+    bulletOpacity,
+    perfectOpacity,
+    glassOpacity,
+    roughness,
+    aoStrength,
+    transmissionStrength,
+    specularStrength,
+    glassStrength,
+    glassIOR,
+    refractionAmount,
+    glassTint,
+    shininess,
+    showGrid
+  ]);
+  /* ------------------------------------------------
+     GRID CELLS
+  ------------------------------------------------ */
+  const cells =
+    useMemo(() => {
+      const arr=[];
+      for(
+        let y=0;
+        y<GRID;
+        y++
+      ){
+        for(
+          let x=0;
+          x<GRID;
+          x++
+        ){
+          const c =
+            dots.get(
+              key(x,y,layer)
+            );
+          arr.push({
+            x,
+            y,
+            filled:!!c,
+            c
+          });
+        }
+      }
+      return arr;
+    },[
+      dots,
+      layer
+    ]);
+  return (
+    <>
+      <div className="top-bar">
+        <button
+          className={
+            "btn "+
+            (mode==='draw'
+              ?'active'
+              :'')
+          }
+          onClick={() =>
+            setMode('draw')
+          }
+        >
+          Draw
+        </button>
+        <button
+          className={
+            "btn "+
+            (mode==='erase'
+              ?'active'
+              :'')
+          }
+          onClick={() =>
+            setMode('erase')
+          }
+        >
+          Erase
+        </button>
+        <button
+          className="btn"
+          onClick={() =>
+            setDots(
+              createSphere(
+                18,
+                color
+              )
+            )
+          }
+        >
+          Reset Sphere
+        </button>
+        <button
+          className="btn"
+          onClick={
+            recolorAllVoxels
+          }
+        >
+          Recolor
+        </button>
+        <div className="palette-wrap">
+          <div className="palette-title">
+            MS Paint Palette
+          </div>
+          <div className="palette">
+            {MS_PAINT_COLORS.map(c => (
+              <button
+                key={c}
+                className={
+                  "swatch "+
+                  (
+                    color===c
+                      ?'selected'
+                      :''
+                  )
+                }
+                style={{
+                  background:c
+                }}
+                onClick={() =>
+                  setColor(c)
+                }
+                title={c}
+              />
+            ))}
+          </div>
+        </div>
+      </div>
+      <div className="preview-box">
+        <div className="preview-head">
+          <div>
+            <div className="preview-title">
+              Mix Shader
+            </div>
+            <div className="preview-subtitle">
+              Bullet • Perfect • Crisp Glass
+            </div>
+          </div>
+          <div className="status-pill">
+            {dots.size.toLocaleString()} VOXELS
+          </div>
+        </div>
+        <div className="canvas-wrap">
+          <canvas
+            ref={canvasRef}
+          />
+          <div className="canvas-overlay">
+            360° view • Layer {layer+1}
+          </div>
+        </div>
+        <div className="section-header">
+          Material Presets
+        </div>
+        <div className="preset-row">
+          <button
+            className="preset"
+            onClick={() =>
+              applyPreset('chrome')
+            }
+          >
+            Chrome
+          </button>
+          <button
+            className="preset"
+            onClick={() =>
+              applyPreset('glass')
+            }
+          >
+            Glass
+          </button>
+          <button
+            className="preset"
+            onClick={() =>
+              applyPreset('crystal')
+            }
+          >
+            Crystal
+          </button>
+          <button
+            className="preset"
+            onClick={() =>
+              applyPreset('satin')
+            }
+          >
+            Satin
+          </button>
+          <button
+            className="preset"
+            onClick={resetShader}
+          >
+            Reset Shader
+          </button>
+        </div>
+        <div className="section-header">
+          Master Look
+        </div>
+        <div className="controls">
+          <div className="control-item">
+            <div className="control-top">
+              <label>
+                Master Effect
+              </label>
+              <span className="value">
+                {master.toFixed(2)}
+              </span>
+            </div>
+            <input
+              type="range"
+              min="0"
+              max="1.5"
+              step=".01"
+              value={master}
+              onChange={e =>
+                setMaster(
+                  +e.target.value
+                )
+              }
+            />
+          </div>
+          <div className="control-item">
+            <div className="control-top">
+              <label>
+                Exposure
+              </label>
+              <span className="value">
+                {exposure.toFixed(2)}
+              </span>
+            </div>
+            <input
+              type="range"
+              min=".5"
+              max="1.6"
+              step=".01"
+              value={exposure}
+              onChange={e =>
+                setExposure(
+                  +e.target.value
+                )
+              }
+            />
+          </div>
+          <div className="control-item">
+            <div className="control-top">
+              <label>
+                Contrast
+              </label>
+              <span className="value">
+                {contrast.toFixed(2)}
+              </span>
+            </div>
+            <input
+              type="range"
+              min=".5"
+              max="1.6"
+              step=".01"
+              value={contrast}
+              onChange={e =>
+                setContrast(
+                  +e.target.value
+                )
+              }
+            />
+          </div>
+        </div>
+        <div className="section-header">
+          Layer Opacity Mix
+        </div>
+        <div className="controls">
+          <div className="control-item">
+            <div className="control-top">
+              <label>
+                Bullet Layer
+              </label>
+              <span className="value">
+                {bulletOpacity.toFixed(2)}
+              </span>
+            </div>
+            <input
+              type="range"
+              min="0"
+              max="1"
+              step=".01"
+              value={bulletOpacity}
+              onChange={e =>
+                setBulletOpacity(
+                  +e.target.value
+                )
+              }
+            />
+          </div>
+          <div className="control-item">
+            <div className="control-top">
+              <label>
+                Perfect Layer
+              </label>
+              <span className="value">
+                {perfectOpacity.toFixed(2)}
+              </span>
+            </div>
+            <input
+              type="range"
+              min="0"
+              max="1"
+              step=".01"
+              value={perfectOpacity}
+              onChange={e =>
+                setPerfectOpacity(
+                  +e.target.value
+                )
+              }
+            />
+          </div>
+          <div className="control-item">
+            <div className="control-top">
+              <label>
+                Glass Layer
+              </label>
+              <span className="value">
+                {glassOpacity.toFixed(2)}
+              </span>
+            </div>
+            <input
+              type="range"
+              min="0"
+              max="1"
+              step=".01"
+              value={glassOpacity}
+              onChange={e =>
+                setGlassOpacity(
+                  +e.target.value
+                )
+              }
+            />
+          </div>
+        </div>
+        <div className="section-header">
+          Bullet Material
+        </div>
+        <div className="controls">
+          <div className="control-item">
+            <div className="control-top">
+              <label>
+                Roughness
+              </label>
+              <span className="value">
+                {roughness.toFixed(2)}
+              </span>
+            </div>
+            <input
+              type="range"
+              min="0"
+              max="1"
+              step=".01"
+              value={roughness}
+              onChange={e =>
+                setRoughness(
+                  +e.target.value
+                )
+              }
+            />
+          </div>
+          <div className="control-item">
+            <div className="control-top">
+              <label>
+                Ambient Occlusion
+              </label>
+              <span className="value">
+                {aoStrength.toFixed(2)}
+              </span>
+            </div>
+            <input
+              type="range"
+              min="0"
+              max="1"
+              step=".01"
+              value={aoStrength}
+              onChange={e =>
+                setAoStrength(
+                  +e.target.value
+                )
+              }
+            />
+          </div>
+          <div className="control-item">
+            <div className="control-top">
+              <label>
+                Transmission
+              </label>
+              <span className="value">
+                {transmissionStrength.toFixed(2)}
+              </span>
+            </div>
+            <input
+              type="range"
+              min="0"
+              max="1"
+              step=".01"
+              value={transmissionStrength}
+              onChange={e =>
+                setTransmissionStrength(
+                  +e.target.value
+                )
+              }
+            />
+          </div>
+          <div className="control-item">
+            <div className="control-top">
+              <label>
+                Specular
+              </label>
+              <span className="value">
+                {specularStrength.toFixed(2)}
+              </span>
+            </div>
+            <input
+              type="range"
+              min="0"
+              max="2"
+              step=".01"
+              value={specularStrength}
+              onChange={e =>
+                setSpecularStrength(
+                  +e.target.value
+                )
+              }
+            />
+          </div>
+        </div>
+        <div className="section-header">
+          Crisp Glass
+        </div>
+        <div className="controls">
+          <div className="control-item">
+            <div className="control-top">
+              <label>
+                Glass Strength
+              </label>
+              <span className="value">
+                {glassStrength.toFixed(2)}
+              </span>
+            </div>
+            <input
+              type="range"
+              min="0"
+              max="1.5"
+              step=".01"
+              value={glassStrength}
+              onChange={e =>
+                setGlassStrength(
+                  +e.target.value
+                )
+              }
+            />
+          </div>
+          <div className="control-item">
+            <div className="control-top">
+              <label>
+                Glass IOR
+              </label>
+              <span className="value">
+                {glassIOR.toFixed(2)}
+              </span>
+            </div>
+            <input
+              type="range"
+              min="1.0"
+              max="2.0"
+              step=".01"
+              value={glassIOR}
+              onChange={e =>
+                setGlassIOR(
+                  +e.target.value
+                )
+              }
+            />
+          </div>
+          <div className="control-item">
+            <div className="control-top">
+              <label>
+                Refraction
+              </label>
+              <span className="value">
+                {refractionAmount.toFixed(2)}
+              </span>
+            </div>
+            <input
+              type="range"
+              min="0"
+              max="1.5"
+              step=".01"
+              value={refractionAmount}
+              onChange={e =>
+                setRefractionAmount(
+                  +e.target.value
+                )
+              }
+            />
+          </div>
+          <div className="control-item">
+            <div className="control-top">
+              <label>
+                Glass Tint
+              </label>
+              <span className="value">
+                {glassTint}
+              </span>
+            </div>
+            <input
+              type="color"
+              value={glassTint}
+              onChange={e =>
+                setGlassTint(
+                  e.target.value
+                )
+              }
+              style={{
+                width:'100%',
+                height:32,
+                border:0,
+                background:'transparent',
+                cursor:'pointer'
+              }}
+            />
+          </div>
+        </div>
+        <div className="section-header">
+          Lighting & View
+        </div>
+        <div className="controls">
+          <div className="control-item">
+            <div className="control-top">
+              <label>
+                Light X
+              </label>
+              <span className="value">
+                {lightPos.x}
+              </span>
+            </div>
+            <input
+              type="range"
+              min="0"
+              max={GRID}
+              value={lightPos.x}
+              onChange={e =>
+                setLightPos(
+                  p => ({
+                    ...p,
+                    x:+e.target.value
+                  })
+                )
+              }
+            />
+          </div>
+          <div className="control-item">
+            <div className="control-top">
+              <label>
+                Light Y
+              </label>
+              <span className="value">
+                {lightPos.y}
+              </span>
+            </div>
+            <input
+              type="range"
+              min="0"
+              max={GRID}
+              value={lightPos.y}
+              onChange={e =>
+                setLightPos(
+                  p => ({
+                    ...p,
+                    y:+e.target.value
+                  })
+                )
+              }
+            />
+          </div>
+          <div className="control-item">
+            <div className="control-top">
+              <label>
+                Light Z
+              </label>
+              <span className="value">
+                {lightPos.z}
+              </span>
+            </div>
+            <input
+              type="range"
+              min="0"
+              max={LAYERS-1}
+              value={lightPos.z}
+              onChange={e =>
+                setLightPos(
+                  p => ({
+                    ...p,
+                    z:+e.target.value
+                  })
+                )
+              }
+            />
+          </div>
+          <div className="control-item">
+            <div className="control-top">
+              <label>
+                Rotation
+              </label>
+              <span className="value">
+                {rot}°
+              </span>
+            </div>
+            <input
+              type="range"
+              min="0"
+              max="360"
+              value={rot}
+              onChange={e =>
+                setRot(
+                  +e.target.value
+                )
+              }
+            />
+          </div>
+          <div className="control-item">
+            <div className="control-top">
+              <label>
+                Elevation
+              </label>
+              <span className="value">
+                {elevation}°
+              </span>
+            </div>
+            <input
+              type="range"
+              min="-45"
+              max="45"
+              value={elevation}
+              onChange={e =>
+                setElevation(
+                  +e.target.value
+                )
+              }
+            />
+          </div>
+          <div className="control-item">
+            <div className="control-top">
+              <label>
+                View Layer
+              </label>
+              <span className="value">
+                {layer+1}/{LAYERS}
+              </span>
+            </div>
+            <input
+              type="range"
+              min="0"
+              max={LAYERS-1}
+              value={layer}
+              onChange={e =>
+                setLayer(
+                  +e.target.value
+                )
+              }
+            />
+          </div>
+        </div>
+        <div className="footer-tools">
+          <button
+            className="small-btn"
+            onClick={() =>
+              setRot(0)
+            }
+          >
+            Front
+          </button>
+          <button
+            className="small-btn"
+            onClick={() =>
+              setRot(90)
+            }
+          >
+            Side
+          </button>
+          <button
+            className="small-btn"
+            onClick={() =>
+              setRot(180)
+            }
+          >
+            Back
+          </button>
+          <button
+            className="small-btn"
+            onClick={() =>
+              setRot(270)
+            }
+          >
+            Side 2
+          </button>
+          <button
+            className="small-btn"
+            onClick={() =>
+              setRot(45)
+            }
+          >
+            3/4 View
+          </button>
+          <button
+            className="small-btn"
+            onClick={() =>
+              setShowGrid(
+                v=>!v
+              )
+            }
+          >
+            {showGrid
+              ?'Hide Guide'
+              :'Show Guide'}
+          </button>
+        </div>
+      </div>
+      <div className="grid-box">
+        <div className="grid-head">
+          <div className="grid-title">
+            64×64 Grid Editor
+          </div>
+          <div className="grid-info">
+            Layer {layer+1}
+          </div>
+        </div>
+        <div className="grid">
+          {cells.map(cell => (
+            <button
+              key={
+                cell.x+
+                '-' +
+                cell.y
+              }
+              className={
+                "cell "+
+                (
+                  cell.filled
+                    ?'filled'
+                    :''
+                )
+              }
+              style={
+                cell.filled
+                  ?{
+                    '--c':cell.c
+                  }
+                  :{}
+              }
+              onClick={() =>
+                clickCell(
+                  cell.x,
+                  cell.y
+                )
+              }
+            />
+          ))}
+        </div>
+        <div className="footer-tools">
+          <button
+            className="small-btn"
+            onClick={clearLayer}
+          >
+            Clear Current Layer
+          </button>
+          <button
+            className="small-btn"
+            onClick={
+              recolorAllVoxels
+            }
+          >
+            Recolor Everything
+          </button>
+        </div>
+      </div>
+    </>
+  );
+}
+ReactDOM
+  .createRoot(
+    document.getElementById('root')
+  )
+  .render(<App />);
+</script>
+</body>
+</html>
