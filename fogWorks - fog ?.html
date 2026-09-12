@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Full 3D Shader Mixer + Fog</title>
+<script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body {
+  background: #E2E4E7;
+  font-family: sans-serif;
+  padding: 80px 10px 20px;
+}
+.top-bar {
+  position: fixed;
+  top:0; left:0; right:0;
+  background: white;
+  padding:12px 15px;
+  display:flex;
+  gap:10px;
+  align-items:center;
+  border-bottom:1px solid #ddd;
+  flex-wrap:wrap;
+  z-index:10;
+}
+.btn {
+  padding:8px 14px;
+  border:1px solid #ccc;
+  border-radius:8px;
+  background:#f8f9fa;
+  cursor:pointer;
+  font-weight: 500;
+}
+.preview-box {
+  background:white;
+  border-radius:12px;
+  padding:15px;
+  margin-bottom:15px;
+}
+canvas {
+  display:block;
+  margin:0 auto;
+  background:#111;
+  border-radius:8px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+}
+.controls {
+  margin-top:15px;
+  display:grid;
+  grid-template-columns:repeat(auto-fit, minmax(200px, 1fr));
+  gap:12px;
+}
+.control-item {
+  display:flex;
+  flex-direction:column;
+  gap:4px;
+  font-size:13px;
+}
+.control-item label {
+  font-weight: 500;
+  color: #333;
+}
+.control-item input[type="range"] {
+  width: 100%;
+  cursor: pointer;
+}
+.section-header {
+  margin-top: 20px;
+  margin-bottom: 10px;
+  font-weight: 600;
+  color: #555;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.palette-wrap {
+  margin-left: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.palette {
+  display:grid;
+  grid-template-columns:repeat(14, 20px);
+  gap:4px;
+}
+.swatch {
+  width:20px; height:20px;
+  border-radius:4px;
+  border:1px solid rgba(0,0,0,.25);
+  cursor:pointer;
+}
+.swatch.selected {
+  outline:2px solid #000;
+  outline-offset:1px;
+}
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel">
+const { useState, useRef, useEffect } = React;
+
+const GRID = 64;
+const LAYERS = 64;
+const DOT_RADIUS = 2.5;
+const SPACING = 3.5;
+const CANVAS_SIZE = 700;
+const FOG_COLOR = {r:30, g:30, b:35}; // Soft dark gray fog
+
+const MS_PAINT_COLORS = [
+  '#000000', '#7f7f7f', '#880015', '#ed1c24', '#ff7f27', '#fff200', '#22b14c', '#00a2e8', '#3f48cc', '#a349a4', '#ffffff', '#c3c3c3', '#b97a57', '#ffaec9',
+  '#404040', '#b5b5b5', '#b97a57', '#f4cccc', '#ffc90e', '#efe4b0', '#b5e61d', '#99d9ea', '#7092be', '#c8bfe7', '#e5e5e5', '#d9d2e9', '#ead1dc', '#fce5cd'
+];
+
+const key = (x,y,z) => `${x},${y},${z}`;
+const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
+const normalize = v => {
+  const l = Math.hypot(v.x, v.y, v.z) || 1;
+  return {x:v.x/l, y:v.y/l, z:v.z/l};
+};
+const dot = (a,b) => a.x*b.x + a.y*b.y + a.z*b.z;
+const hexToRgb = h => {
+  const s = h.replace('#','');
+  return {r:parseInt(s.slice(0,2),16)||0,g:parseInt(s.slice(2,4),16)||0,b:parseInt(s.slice(4,6),16)||0};
+};
+
+const project = (x, y, z, rotX, rotY, rotZ) => {
+  let px = x - GRID/2;
+  let py = y - GRID/2;
+  let pz = z - GRID/2;
+
+  const rx = rotX * Math.PI / 180;
+  let y1 = py * Math.cos(rx) - pz * Math.sin(rx);
+  let z1 = py * Math.sin(rx) + pz * Math.cos(rx);
+  py = y1; pz = z1;
+
+  const ry = rotY * Math.PI / 180;
+  let x2 = px * Math.cos(ry) + pz * Math.sin(ry);
+  let z2 = -px * Math.sin(ry) + pz * Math.cos(ry);
+  px = x2; pz = z2;
+
+  const rz = rotZ * Math.PI / 180;
+  let x3 = px * Math.cos(rz) - py * Math.sin(rz);
+  let y3 = px * Math.sin(rz) + py * Math.cos(rz);
+  px = x3; py = y3;
+
+  return { x: px, y: py - pz * 0.4, z: pz };
+};
+
+const phongShade = (x,y,z, lx,ly,lz, cx,cy,cz, base, power, inten) => {
+  const n = normalize({x:x-cx, y:y-cy, z:z-cz});
+  const l = normalize({x:lx-x, y:ly-y, z:lz-z});
+  const v = normalize({x:cx-x, y:cy-y, z:80-z});
+  const h = normalize({x:l.x+v.x, y:l.y+v.y, z:l.z+v.z});
+  const diff = Math.max(0.15, Math.abs(dot(n,l)));
+  let spec = Math.pow(Math.max(0,dot(n,h)), power);
+  if (spec < 0.1) spec = 0;
+  const c = hexToRgb(base);
+  return {
+    r: clamp(c.r*diff + 255*spec*inten,0,255),
+    g: clamp(c.g*diff + 255*spec*inten,0,255),
+    b: clamp(c.b*diff + 255*spec*inten,0,255)
+  };
+};
+
+const bulletShade = (x,y,z, lx,ly,lz, cx,cy,cz, base, rough) => {
+  const n = normalize({x:x-cx, y:y-cy, z:z-cz});
+  const l = normalize({x:lx-x, y:ly-y, z:lz-z});
+  const v = normalize({x:cx-x, y:cy-y, z:80-z});
+  const h = normalize({x:l.x+v.x, y:l.y+v.y, z:l.z+v.z});
+  const diff = Math.max(0.1, Math.abs(dot(n,l))) * (1-rough);
+  const spec = Math.pow(Math.max(0,dot(n,h)), Math.max(10, 90/(rough+0.15)));
+  const c = hexToRgb(base);
+  return {
+    r: clamp(c.r*diff + 220*spec,0,255),
+    g: clamp(c.g*diff + 215*spec,0,255),
+    b: clamp(c.b*diff + 210*spec,0,255)
+  };
+};
+
+const glassShade = (x,y,z, lx,ly,lz, cx,cy,cz, base, strength) => {
+  const n = normalize({x:x-cx, y:y-cy, z:z-cz});
+  const v = normalize({x:cx-x, y:cy-y, z:80-z});
+  const fres = Math.pow(1-Math.max(0,Math.abs(dot(n,v))), 3.5);
+  const c = hexToRgb(base);
+  return {
+    r: clamp(c.r*0.55 + fres*130*strength,0,255),
+    g: clamp(c.g*0.55 + fres*150*strength,0,255),
+    b: clamp(c.b*0.65 + fres*170*strength,0,255)
+  };
+};
+
+const createSphere = (r=18, c='#00a2e8') => {
+  const m = new Map(), cen=GRID/2;
+  for(let x=0;x<GRID;x++)for(let y=0;y<GRID;y++)for(let z=0;z<LAYERS;z++){
+    if((x-cen)**2+(y-cen)**2+(z-cen)**2 <= r*r) m.set(key(x,y,z),c);
+  }
+  return m;
+};
+
+function App() {
+  const [dots, setDots] = useState(()=>createSphere(18,'#00a2e8'));
+  const [color, setColor] = useState('#00a2e8');
+  const [rotX, setRotX] = useState(20);
+  const [rotY, setRotY] = useState(45);
+  const [rotZ, setRotZ] = useState(0);
+  const [lightPos, setLightPos] = useState({x:15, y:15, z:20});
+  const [phongPower, setPhongPower] = useState(160);
+  const [phongInten, setPhongInten] = useState(1.6);
+  const [phongOpacity, setPhongOpacity] = useState(1.0);
+  const [bulletOpacity, setBulletOpacity] = useState(0.0);
+  const [roughness, setRoughness] = useState(0.25);
+  const [glassOpacity, setGlassOpacity] = useState(0.0);
+  const [glassStrength, setGlassStrength] = useState(0.8);
+  
+  // ✅ ONE FOG SLIDER
+  const [fogAmount, setFogAmount] = useState(0.35); // 0=none, 1=full fog
+
+  const canvasRef = useRef(null);
+  const cen = GRID/2;
+  const maxDepth = GRID; // Full depth range
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if(!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const cx = CANVAS_SIZE/2, cy = CANVAS_SIZE/2;
+    ctx.clearRect(0,0,CANVAS_SIZE,CANVAS_SIZE);
+
+    const list = [];
+    for(const [k, baseCol] of dots){
+      const [x,y,z] = k.split(',').map(Number);
+      const p = project(x,y,z,rotX,rotY,rotZ);
+      list.push({x,y,z,baseCol,px:p.x,py:p.y,pz:p.z,depth:p.z});
+    }
+    
+    list.sort((a,b)=>a.depth - b.depth);
+
+    for(const d of list){
+      const p = phongShade(d.x,d.y,d.z,lightPos.x,lightPos.y,lightPos.z,cen,cen,cen,d.baseCol,phongPower,phongInten);
+      const b = bulletShade(d.x,d.y,d.z,lightPos.x,lightPos.y,lightPos.z,cen,cen,cen,d.baseCol,roughness);
+      const g = glassShade(d.x,d.y,d.z,lightPos.x,lightPos.y,lightPos.z,cen,cen,cen,d.baseCol,glassStrength);
+
+      let r = p.r*phongOpacity + b.r*bulletOpacity + g.r*glassOpacity;
+      let grn = p.g*phongOpacity + b.g*bulletOpacity + g.g*glassOpacity;
+      let bue = p.b*phongOpacity + b.b*bulletOpacity + g.b*glassOpacity;
+
+      // ✅ FOG APPLICATION: simple depth-based fade
+      const depthFactor = (d.depth + maxDepth/2) / maxDepth; // 0=front, 1=back
+      const fogFactor = depthFactor * fogAmount;
+      r = r * (1-fogFactor) + FOG_COLOR.r * fogFactor;
+      grn = grn * (1-fogFactor) + FOG_COLOR.g * fogFactor;
+      bue = bue * (1-fogFactor) + FOG_COLOR.b * fogFactor;
+
+      ctx.beginPath();
+      ctx.arc(cx+d.px*SPACING, cy+d.py*SPACING, DOT_RADIUS, 0, Math.PI*2);
+      ctx.fillStyle = `rgb(${clamp(r,0,255)},${clamp(grn,0,255)},${clamp(bue,0,255)})`;
+      ctx.fill();
+    }
+  }, [dots,rotX,rotY,rotZ,lightPos,phongPower,phongInten,phongOpacity,bulletOpacity,roughness,glassOpacity,glassStrength,fogAmount]);
+
+  return (
+    <>
+      <div className="top-bar">
+        <button className="btn" onClick={()=>setDots(createSphere(18,color))}>Reset Sphere</button>
+        <div className="palette-wrap">
+          <div className="palette">{MS_PAINT_COLORS.map(c=>(
+            <button key={c} className={"swatch "+(color===c?'selected':'')} style={{background:c}} onClick={()=>setColor(c)}/>
+          ))}</div>
+        </div>
+      </div>
+
+      <div className="preview-box">
+        <h3>Full 3D Shader Mixer • NO CULLING • + Fog</h3>
+        <canvas ref={canvasRef} width={CANVAS_SIZE} height={CANVAS_SIZE}></canvas>
+
+        <div className="section-header">🔄 Full 3D Rotation</div>
+        <div className="controls">
+          <div className="control-item">
+            <label>Rotate X: {rotX}°</label>
+            <input type="range" min="0" max="360" value={rotX} onChange={e=>setRotX(+e.target.value)}/>
+          </div>
+          <div className="control-item">
+            <label>Rotate Y: {rotY}°</label>
+            <input type="range" min="0" max="360" value={rotY} onChange={e=>setRotY(+e.target.value)}/>
+          </div>
+          <div className="control-item">
+            <label>Rotate Z: {rotZ}°</label>
+            <input type="range" min="0" max="360" value={rotZ} onChange={e=>setRotZ(+e.target.value)}/>
+          </div>
+        </div>
+
+        <div className="section-header">💡 Light Position (X/Y/Z)</div>
+        <div className="controls">
+          <div className="control-item">
+            <label>Light X: {lightPos.x}</label>
+            <input type="range" min="0" max={GRID} value={lightPos.x} onChange={e=>setLightPos(p=>({...p,x:+e.target.value}))}/>
+          </div>
+          <div className="control-item">
+            <label>Light Y: {lightPos.y}</label>
+            <input type="range" min="0" max={GRID} value={lightPos.y} onChange={e=>setLightPos(p=>({...p,y:+e.target.value}))}/>
+          </div>
+          <div className="control-item">
+            <label>Light Z: {lightPos.z}</label>
+            <input type="range" min="0" max={LAYERS-1} value={lightPos.z} onChange={e=>setLightPos(p=>({...p,z:+e.target.value}))}/>
+          </div>
+        </div>
+
+        <div className="section-header">✨ Phong Specular (Base)</div>
+        <div className="controls">
+          <div className="control-item">
+            <label>Sharpness: {phongPower}</label>
+            <input type="range" min="40" max="300" value={phongPower} onChange={e=>setPhongPower(+e.target.value)}/>
+          </div>
+          <div className="control-item">
+            <label>Brightness: {phongInten.toFixed(2)}</label>
+            <input type="range" min="0" max="3" step="0.1" value={phongInten} onChange={e=>setPhongInten(+e.target.value)}/>
+          </div>
+          <div className="control-item">
+            <label>Opacity: {phongOpacity.toFixed(2)}</label>
+            <input type="range" min="0" max="1" step="0.05" value={phongOpacity} onChange={e=>setPhongOpacity(+e.target.value)}/>
+          </div>
+        </div>
+
+        <div className="section-header">🔩 Bullet / Metal Layer</div>
+        <div className="controls">
+          <div className="control-item">
+            <label>Opacity: {bulletOpacity.toFixed(2)}</label>
+            <input type="range" min="0" max="1" step="0.05" value={bulletOpacity} onChange={e=>setBulletOpacity(+e.target.value)}/>
+          </div>
+          <div className="control-item">
+            <label>Roughness: {roughness.toFixed(2)}</label>
+            <input type="range" min="0" max="0.6" step="0.01" value={roughness} onChange={e=>setRoughness(+e.target.value)}/>
+          </div>
+        </div>
+
+        <div className="section-header">🔍 Glass / Fresnel Layer</div>
+        <div className="controls">
+          <div className="control-item">
+            <label>Opacity: {glassOpacity.toFixed(2)}</label>
+            <input type="range" min="0" max="1" step="0.05" value={glassOpacity} onChange={e=>setGlassOpacity(+e.target.value)}/>
+          </div>
+          <div className="control-item">
+            <label>Strength: {glassStrength.toFixed(2)}</label>
+            <input type="range" min="0" max="1.5" step="0.05" value={glassStrength} onChange={e=>setGlassStrength(+e.target.value)}/>
+          </div>
+        </div>
+
+        {/* ✅ NEW FOG SECTION */}
+        <div className="section-header">🌫️ Fog (Depth Fade)</div>
+        <div className="controls">
+          <div className="control-item">
+            <label>Fog Density: {fogAmount.toFixed(2)}</label>
+            <input type="range" min="0" max="1" step="0.05" value={fogAmount} onChange={e=>setFogAmount(+e.target.value)}/>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
